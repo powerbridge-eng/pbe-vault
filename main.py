@@ -7,12 +7,7 @@ import psycopg2
 import cloudinary
 import cloudinary.uploader
 from datetime import datetime, date
-from contextlib import asynccontextmanager
-from typing import List, Optional
-from fastapi import FastAPI, Depends, HTTPException, status, Form, UploadFile, File
-from fastapi.responses import FileResponse, HTMLResponse
-from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from flask import Flask, request, jsonify, render_template, send_file, Response
 from reportlab.pdfgen import canvas
 from reportlab.graphics.barcode import code128
 from reportlab.lib import colors
@@ -23,35 +18,45 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 ARKESEL_API_KEY = os.environ.get("ARKESEL_API_KEY")
 ARKESEL_SENDER_ID = os.environ.get("ARKESEL_SENDER_ID", "PBE_OTP")
 
+# Cloudinary Setup
 cloudinary.config(
     cloud_name = os.environ.get("CLOUDINARY_NAME"),
     api_key = os.environ.get("CLOUDINARY_API_KEY"),
     api_secret = os.environ.get("CLOUDINARY_API_SECRET")
 )
 
+app = Flask(__name__)
+
 def get_db():
+    # This connects to your external database set in Render environment variables
     return psycopg2.connect(DATABASE_URL)
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    conn = get_db(); cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS pbe_master_registry (
-            id SERIAL PRIMARY KEY,
-            surname VARCHAR(100), firstname VARCHAR(100),
-            gender VARCHAR(10), nationality VARCHAR(50),
-            pbe_uid VARCHAR(20) UNIQUE, pbe_license VARCHAR(50) UNIQUE,
-            rank VARCHAR(50), phone_no VARCHAR(20) UNIQUE,
-            photo_url TEXT, otp_code VARCHAR(6), 
-            status VARCHAR(20) DEFAULT 'ACTIVE', is_verified BOOLEAN DEFAULT FALSE,
-            joined_date DATE DEFAULT CURRENT_DATE
-        );
-    """)
-    conn.commit(); cursor.close(); conn.close()
-    yield
+# Initialize Database Table
+def init_db():
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS pbe_master_registry (
+                id SERIAL PRIMARY KEY,
+                surname VARCHAR(100), firstname VARCHAR(100),
+                gender VARCHAR(10), nationality VARCHAR(50),
+                pbe_uid VARCHAR(20) UNIQUE, pbe_license VARCHAR(50) UNIQUE,
+                rank VARCHAR(50), phone_no VARCHAR(20) UNIQUE,
+                photo_url TEXT, otp_code VARCHAR(6), 
+                status VARCHAR(20) DEFAULT 'ACTIVE', is_verified BOOLEAN DEFAULT FALSE,
+                joined_date DATE DEFAULT CURRENT_DATE
+            );
+        """)
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        print(f"Database init error: {e}")
 
-app = FastAPI(title="PBE Master IIV System", lifespan=lifespan)
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# Run initialization when the app starts
+with app.app_context():
+    init_db()
 
 # --- 2. CORE UTILITIES ---
 def send_arkesel_sms(phone: str, message: str):
@@ -61,53 +66,67 @@ def send_arkesel_sms(phone: str, message: str):
     try:
         response = requests.post(url, json=payload, headers=headers)
         return response.json()
-    except: return {"status": "error"}
+    except: 
+        return {"status": "error"}
 
 # --- 3. ROUTES ---
 
-@app.get("/", response_class=HTMLResponse)
-async def home():
+@app.route("/")
+def home():
     return """
-    <html><body style="font-family:sans-serif; text-align:center; padding-top:50px;">
-        <img src="/static/logo.png" width="150">
-        <h1>POWER BRIDGE ENGINEERING</h1>
-        <p>Identity Vault is Online & Secure.</p>
-    </body></html>
+    <html>
+    <head><title>PBE Identity Vault</title></head>
+    <body style="font-family:sans-serif; text-align:center; padding-top:100px; background-color:#f4f4f4;">
+        <div style="background:white; display:inline-block; padding:50px; border-radius:15px; box-shadow: 0px 4px 15px rgba(0,0,0,0.1);">
+            <h1 style="color:#1a3a5a;">POWER BRIDGE ENGINEERING</h1>
+            <p style="font-size:1.2em; color:#555;">Identity Vault is <b>ONLINE</b> & Secure.</p>
+            <div style="margin-top:20px; padding:10px; background:#e7f3ff; color:#0056b3; border-radius:5px;">
+                Status: System Operational (Flask Edition)
+            </div>
+        </div>
+    </body>
+    </html>
     """
 
-@app.get("/admin/print-id/{pbe_uid}")
-async def print_card(pbe_uid: str):
-    conn = get_db(); cursor = conn.cursor()
-    cursor.execute("SELECT * FROM pbe_master_registry WHERE pbe_uid = %s", (pbe_uid,))
-    emp = cursor.fetchone()
-    
-    pdf_file = f"PBE_{pbe_uid}.pdf"
-    c = canvas.Canvas(pdf_file, pagesize=(3.375*inch, 2.125*inch))
-    
-    # MATCHING YOUR EXACT FILE NAME
-    template = "static/POWER BRIDGE ENGINEERING ID CARD TEMPLATE.png"
-    
-    if os.path.exists(template):
-        c.drawImage(template, 0, 0, width=3.375*inch, height=2.125*inch)
+@app.route("/admin/print-id/<pbe_uid>")
+def print_card(pbe_uid):
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM pbe_master_registry WHERE pbe_uid = %s", (pbe_uid,))
+        emp = cursor.fetchone()
+        
+        if not emp:
+            return "Employee not found", 404
 
-    c.setFont("Helvetica-Bold", 6.5); c.setFillColor(colors.black)
-    x_data = 1.35 * inch
-    c.drawString(x_data, 1.83*inch, str(emp[1])) # Surname
-    c.drawString(x_data, 1.63*inch, str(emp[2])) # Firstname
-    c.drawString(x_data, 1.43*inch, str(emp[3])) # Gender
-    c.drawString(x_data, 1.23*inch, str(emp[4])) # Nationality
-    c.drawString(x_data, 1.03*inch, str(emp[5])) # UID
-    c.drawString(x_data, 0.83*inch, str(emp[6])) # License
-    c.drawString(x_data, 0.63*inch, str(emp[7])) # Rank
+        pdf_file = f"PBE_{pbe_uid}.pdf"
+        c = canvas.Canvas(pdf_file, pagesize=(3.375*inch, 2.125*inch))
+        
+        # Identity Card Drawing Logic
+        c.setFont("Helvetica-Bold", 6.5)
+        c.setFillColor(colors.black)
+        x_data = 1.35 * inch
+        
+        # Drawing Data from Database
+        c.drawString(x_data, 1.83*inch, f"Surname: {str(emp[1])}") 
+        c.drawString(x_data, 1.63*inch, f"Firstname: {str(emp[2])}")
+        c.drawString(x_data, 1.43*inch, f"Gender: {str(emp[3])}")
+        c.drawString(x_data, 1.23*inch, f"UID: {str(emp[5])}")
+        c.drawString(x_data, 1.03*inch, f"Rank: {str(emp[7])}")
 
-    # Barcode
-    barcode = code128.Code128(emp[5], barHeight=0.2*inch, barWidth=0.8)
-    barcode.drawOn(c, 1.1*inch, 0.18*inch)
-    
-    # Worker Photo
-    resp = requests.get(emp[9])
-    with open("temp.jpg", "wb") as f: f.write(resp.content)
-    c.drawImage("temp.jpg", 0.15*inch, 0.65*inch, width=0.85*inch, height=1.05*inch)
-    
-    c.save(); cursor.close(); conn.close()
-    return FileResponse(pdf_file, media_type='application/pdf')
+        # Generate Barcode
+        barcode = code128.Code128(emp[5], barHeight=0.2*inch, barWidth=0.8)
+        barcode.drawOn(c, 1.1*inch, 0.18*inch)
+        
+        c.save()
+        cursor.close()
+        conn.close()
+        
+        return send_file(pdf_file, mimetype='application/pdf')
+    except Exception as e:
+        return f"Error generating ID: {str(e)}", 500
+
+if __name__ == "__main__":
+    # Render provides the PORT as an environment variable
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
