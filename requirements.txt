@@ -1,7 +1,8 @@
+psycopg2
+psycopg2-binary
 flask
 gunicorn
 requests
-psycopg2-binary
 pillow
 qrcode
 reportlab
