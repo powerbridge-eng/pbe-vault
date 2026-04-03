@@ -1,4 +1,3 @@
-
 import os
 import random
 import string
@@ -31,7 +30,7 @@ app = Flask(__name__)
 def get_db():
     return psycopg2.connect(DATABASE_URL)
 
-# Initialize Table with all PBE Requirements
+# Initialize Table with all PBE Requirements (Includes DOB & Ghana Card)
 def init_db():
     conn = get_db()
     cur = conn.cursor()
@@ -53,9 +52,8 @@ def init_db():
 with app.app_context():
     init_db()
 
-# --- 2. THE ENCRYPTION ENGINE ---
+# --- 2. THE ENCRYPTION ENGINE (15-Character Smart IDs) ---
 def generate_pbe_code(name):
-    """Creates a 15-character unique ID mixed with the name"""
     clean_name = re.sub(r'[^a-zA-Z]', '', name).upper()
     chars = string.ascii_uppercase + string.digits
     random_part = ''.join(random.choices(chars, k=15))
@@ -71,7 +69,7 @@ BASE_HTML = """
     <style>
         body { font-family: sans-serif; background: #f4f7f6; margin: 0; text-align: center; }
         .header { background: #1a3a5a; color: white; padding: 20px; }
-        .logo { width: 100px; margin-bottom: 10px; }
+        .logo { width: 100px; margin-bottom: 10px; border-radius: 5px; }
         .container { max-width: 1100px; margin: 20px auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
         table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 0.9em; }
         th, td { border-bottom: 1px solid #ddd; padding: 12px; text-align: left; }
@@ -92,7 +90,7 @@ BASE_HTML = """
 </html>
 """
 
-# --- 4. ADMIN ROUTES (The Dashboard) ---
+# --- 4. ADMIN DASHBOARD ROUTES ---
 
 @app.route("/admin")
 def admin_dashboard():
@@ -125,7 +123,7 @@ def admin_dashboard():
                 <td>{{ w[13] }}</td>
                 <td>
                     <a href="/admin/print-id/{{ w[4] }}" class="btn btn-blue">Print ID</a>
-                    <a href="https://wa.me/{{ w[9] }}?text=Your PBE ID is ready: {{ request.url_root }}verify/{{ w[4] }}" class="btn btn-green">WhatsApp</a>
+                    <a href="https://wa.me/{{ w[9] }}?text=Hello, your PBE ID is ready. Verify here: {{ request.url_root }}verify/{{ w[4] }}" class="btn btn-green" target="_blank">WhatsApp</a>
                     <a href="/admin/delete/{{ w[0] }}" class="btn btn-red" onclick="return confirm('Delete permanently?')">Del</a>
                 </td>
             </tr>
@@ -179,13 +177,13 @@ def print_id(pbe_uid):
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=(3.375*inch, 2.125*inch))
     
-    # Background
+    # Background Image
     template = "POWER BRIDGE ENGINEERING ID CARD TEMPLATE.png"
     if os.path.exists(template):
         c.drawImage(template, 0, 0, width=3.375*inch, height=2.125*inch)
 
-    # Photo (from Cloudinary)
-    if w[10]: # photo_url
+    # Passport Photo (from Cloudinary)
+    if w[10]: 
         try: c.drawImage(w[10], 0.2*inch, 0.65*inch, width=0.9*inch, height=1.1*inch)
         except: pass
 
@@ -196,14 +194,14 @@ def print_id(pbe_uid):
     
     c.drawString(x_col, 1.6*inch, f"SURNAME: {w[1]}".upper())
     c.drawString(x_col, 1.45*inch, f"FIRSTNAME: {w[2]}".upper())
-    c.drawString(x_col, 1.25*inch, f"ID NO: {w[4]}") # The 15-char UID
-    c.drawString(x_col, 1.1*inch, f"LICENSE: {w[5]}") # The 15-char License
+    c.drawString(x_col, 1.25*inch, f"ID NO: {w[4]}")
+    c.drawString(x_col, 1.1*inch, f"LICENSE: {w[5]}")
     c.drawString(x_col, 0.95*inch, f"RANK: {w[8]}")
     c.drawString(x_col, 0.8*inch, f"INSURED: {w[6]}")
     c.drawString(x_col, 0.65*inch, f"EXPIRY: {w[7]}")
     c.drawString(x_col, 0.5*inch, f"DOB: {w[3]}")
 
-    # QR Code
+    # QR Code for Mobile Verification
     qr_code = qr.QrCodeWidget(f"{request.url_root}verify/{w[4]}")
     bounds = qr_code.getBounds()
     width, height = bounds[2]-bounds[0], bounds[3]-bounds[1]
@@ -215,6 +213,8 @@ def print_id(pbe_uid):
     c.save()
     buffer.seek(0)
     return send_file(buffer, mimetype='application/pdf')
+
+# --- 6. PUBLIC VERIFICATION ---
 
 @app.route("/verify/<uid>")
 def verify(uid):
