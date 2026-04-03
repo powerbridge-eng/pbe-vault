@@ -30,10 +30,11 @@ app = Flask(__name__)
 def get_db():
     return psycopg2.connect(DATABASE_URL)
 
-# Initialize Table with all PBE Requirements (Includes DOB & Ghana Card)
+# --- 2. SELF-HEALING DATABASE (Fixes the Error) ---
 def init_db():
     conn = get_db()
     cur = conn.cursor()
+    # Create table if it doesn't exist
     cur.execute("""
         CREATE TABLE IF NOT EXISTS pbe_master_registry (
             id SERIAL PRIMARY KEY,
@@ -45,6 +46,11 @@ def init_db():
             otp_code TEXT, status TEXT DEFAULT 'PENDING'
         );
     """)
+    # Force add missing columns to prevent "Internal Server Error"
+    columns = ["dob", "insurance_date", "expiry_date", "ghana_card"]
+    for col in columns:
+        cur.execute(f"ALTER TABLE pbe_master_registry ADD COLUMN IF NOT EXISTS {col} TEXT;")
+    
     conn.commit()
     cur.close()
     conn.close()
@@ -52,14 +58,14 @@ def init_db():
 with app.app_context():
     init_db()
 
-# --- 2. THE ENCRYPTION ENGINE (15-Character Smart IDs) ---
+# --- 3. ENCRYPTION ENGINE ---
 def generate_pbe_code(name):
     clean_name = re.sub(r'[^a-zA-Z]', '', name).upper()
     chars = string.ascii_uppercase + string.digits
     random_part = ''.join(random.choices(chars, k=15))
     return f"{clean_name}{random_part}"[:15]
 
-# --- 3. UI TEMPLATE ---
+# --- 4. UI DESIGN ---
 BASE_HTML = """
 <!DOCTYPE html>
 <html>
@@ -71,7 +77,7 @@ BASE_HTML = """
         .header { background: #1a3a5a; color: white; padding: 20px; }
         .logo { width: 100px; margin-bottom: 10px; border-radius: 5px; }
         .container { max-width: 1100px; margin: 20px auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 0.9em; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
         th, td { border-bottom: 1px solid #ddd; padding: 12px; text-align: left; }
         .btn { padding: 8px 12px; border-radius: 5px; text-decoration: none; font-size: 13px; display: inline-block; cursor: pointer; border: none; }
         .btn-blue { background: #0056b3; color: white; }
@@ -90,40 +96,35 @@ BASE_HTML = """
 </html>
 """
 
-# --- 4. ADMIN DASHBOARD ROUTES ---
+# --- 5. ROUTES ---
+
+@app.route("/")
+def home():
+    return redirect(url_for('admin_dashboard'))
 
 @app.route("/admin")
 def admin_dashboard():
-    search = request.args.get('search', '')
     conn = get_db()
     cur = conn.cursor()
-    if search:
-        cur.execute("SELECT * FROM pbe_master_registry WHERE surname ILIKE %s OR pbe_uid ILIKE %s", (f'%{search}%', f'%{search}%'))
-    else:
-        cur.execute("SELECT * FROM pbe_master_registry ORDER BY id DESC")
+    cur.execute("SELECT * FROM pbe_master_registry ORDER BY id DESC")
     workers = cur.fetchall()
     cur.close()
     conn.close()
     return render_template_string(BASE_HTML + """
     {% block content %}
         <h2>Worker Registry Management</h2>
-        <form method="GET" style="margin-bottom:20px;">
-            <input type="text" name="search" placeholder="Search Name or UID..." style="width:40%;">
-            <button type="submit" class="btn btn-blue">Search</button>
-            <a href="/admin/invite" class="btn btn-green">+ New Invitation</a>
-        </form>
+        <a href="/admin/invite" class="btn btn-green">+ New Invitation (SMS OTP)</a>
         <table>
-            <tr><th>UID</th><th>Name</th><th>License</th><th>Rank</th><th>Status</th><th>Actions</th></tr>
+            <tr><th>UID</th><th>Name</th><th>Rank</th><th>Status</th><th>Actions</th></tr>
             {% for w in workers %}
             <tr>
                 <td><b>{{ w[4] }}</b></td>
                 <td>{{ w[1] }}, {{ w[2] }}</td>
-                <td>{{ w[5] }}</td>
                 <td>{{ w[8] }}</td>
                 <td>{{ w[13] }}</td>
                 <td>
                     <a href="/admin/print-id/{{ w[4] }}" class="btn btn-blue">Print ID</a>
-                    <a href="https://wa.me/{{ w[9] }}?text=Hello, your PBE ID is ready. Verify here: {{ request.url_root }}verify/{{ w[4] }}" class="btn btn-green" target="_blank">WhatsApp</a>
+                    <a href="https://wa.me/{{ w[9] }}?text=PBE ID Verification: {{ request.url_root }}verify/{{ w[4] }}" class="btn btn-green" target="_blank">WhatsApp</a>
                     <a href="/admin/delete/{{ w[0] }}" class="btn btn-red" onclick="return confirm('Delete permanently?')">Del</a>
                 </td>
             </tr>
@@ -151,18 +152,6 @@ def invite():
         return redirect(url_for('admin_dashboard'))
     return render_template_string(BASE_HTML + "{% block content %}<h3>Invite Worker</h3><form method='POST'><input name='phone' placeholder='233...' required><button class='btn btn-blue'>Send SMS OTP</button></form>{% endblock %}")
 
-@app.route("/admin/delete/<int:id>")
-def delete_worker(id):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM pbe_master_registry WHERE id = %s", (id,))
-    conn.commit()
-    cur.close()
-    conn.close()
-    return redirect(url_for('admin_dashboard'))
-
-# --- 5. THE PRECISION PRINT ENGINE ---
-
 @app.route("/admin/print-id/<pbe_uid>")
 def print_id(pbe_uid):
     conn = get_db()
@@ -171,27 +160,20 @@ def print_id(pbe_uid):
     w = cur.fetchone()
     cur.close()
     conn.close()
-    
     if not w: return "Not Found", 404
-
+    
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=(3.375*inch, 2.125*inch))
-    
-    # Background Image
     template = "POWER BRIDGE ENGINEERING ID CARD TEMPLATE.png"
     if os.path.exists(template):
         c.drawImage(template, 0, 0, width=3.375*inch, height=2.125*inch)
-
-    # Passport Photo (from Cloudinary)
-    if w[10]: 
+    if w[10]: # photo_url
         try: c.drawImage(w[10], 0.2*inch, 0.65*inch, width=0.9*inch, height=1.1*inch)
         except: pass
 
-    # Smart Encrypted Details
     c.setFont("Helvetica-Bold", 7.5)
     c.setFillColor(colors.black)
     x_col = 1.35*inch
-    
     c.drawString(x_col, 1.6*inch, f"SURNAME: {w[1]}".upper())
     c.drawString(x_col, 1.45*inch, f"FIRSTNAME: {w[2]}".upper())
     c.drawString(x_col, 1.25*inch, f"ID NO: {w[4]}")
@@ -201,20 +183,16 @@ def print_id(pbe_uid):
     c.drawString(x_col, 0.65*inch, f"EXPIRY: {w[7]}")
     c.drawString(x_col, 0.5*inch, f"DOB: {w[3]}")
 
-    # QR Code for Mobile Verification
     qr_code = qr.QrCodeWidget(f"{request.url_root}verify/{w[4]}")
     bounds = qr_code.getBounds()
     width, height = bounds[2]-bounds[0], bounds[3]-bounds[1]
     d = Drawing(45, 45, transform=[45./width,0,0,45./height,0,0])
     d.add(qr_code)
     d.drawOn(c, 2.8*inch, 0.15*inch)
-
     c.showPage()
     c.save()
     buffer.seek(0)
     return send_file(buffer, mimetype='application/pdf')
-
-# --- 6. PUBLIC VERIFICATION ---
 
 @app.route("/verify/<uid>")
 def verify(uid):
@@ -222,9 +200,21 @@ def verify(uid):
     cur = conn.cursor()
     cur.execute("SELECT firstname, surname, rank, pbe_license, status FROM pbe_master_registry WHERE pbe_uid = %s", (uid,))
     w = cur.fetchone()
+    cur.close()
+    conn.close()
     if w:
         return f"<div style='text-align:center; padding:50px; font-family:sans-serif;'><h1>✅ VERIFIED PBE EMPLOYEE</h1><p>Name: {w[0]} {w[1]}</p><p>Rank: {w[2]}</p><p>License: {w[3]}</p><h3>STATUS: {w[4]}</h3></div>"
     return "<h1>❌ INVALID ID</h1>"
+
+@app.route("/admin/delete/<int:id>")
+def delete_worker(id):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM pbe_master_registry WHERE id = %s", (id,))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return redirect(url_for('admin_dashboard'))
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
