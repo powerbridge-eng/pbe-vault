@@ -1,5 +1,6 @@
 flask
 gunicorn
+requests
 psycopg2-binary
 pillow
 qrcode
