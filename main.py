@@ -23,7 +23,7 @@ app = Flask(__name__)
 def get_db():
     return psycopg2.connect(DATABASE_URL)
 
-# --- 2. DATABASE INITIALIZATION ---
+# --- 2. DATABASE INITIALIZATION (Self-Healing) ---
 def init_db():
     conn = get_db()
     cur = conn.cursor()
@@ -38,7 +38,7 @@ def init_db():
             otp_code TEXT, status TEXT DEFAULT 'PENDING'
         );
     """)
-    cols = ["dob", "insurance_date", "expiry_date", "ghana_card"]
+    cols = ["dob", "insurance_date", "expiry_date", "ghana_card", "otp_code", "photo_url"]
     for col in cols:
         cur.execute(f"ALTER TABLE pbe_master_registry ADD COLUMN IF NOT EXISTS {col} TEXT;")
     conn.commit()
@@ -48,13 +48,13 @@ def init_db():
 with app.app_context():
     init_db()
 
-# --- 3. UTILITIES ---
+# --- 3. ENCRYPTION ENGINE (15-Character Smart IDs) ---
 def generate_pbe_code(name):
     clean_name = re.sub(r'[^a-zA-Z]', '', name).upper()
     random_part = ''.join(random.choices(string.ascii_uppercase + string.digits, k=15))
     return f"{clean_name}{random_part}"[:15]
 
-# --- 4. UI TEMPLATE ---
+# --- 4. UI DESIGN ---
 BASE_HTML = """
 <!DOCTYPE html>
 <html>
@@ -68,14 +68,15 @@ BASE_HTML = """
         .container { max-width: 1100px; margin: 20px auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
         table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 0.85em; }
         th, td { border-bottom: 1px solid #ddd; padding: 10px; text-align: left; }
-        .btn { padding: 6px 10px; border-radius: 4px; text-decoration: none; font-size: 12px; display: inline-block; border: none; color: white; }
+        .btn { padding: 6px 10px; border-radius: 4px; text-decoration: none; font-size: 12px; display: inline-block; border: none; color: white; cursor: pointer; }
         .btn-blue { background: #0056b3; } .btn-green { background: #28a745; } .btn-red { background: #dc3545; }
+        input { padding: 8px; margin: 5px; border: 1px solid #ddd; border-radius: 4px; width: 250px; }
     </style>
 </head>
 <body>
     <div class="header">
         <img src="/static/logo.png" class="logo" onerror="this.src='https://via.placeholder.com/100?text=PBE+LOGO'">
-        <h1>PBE COMMAND CENTER</h1>
+        <h1>POWER BRIDGE ENGINEERING</h1>
     </div>
     <div class="container">{% block content %}{% endblock %}</div>
 </body>
@@ -83,31 +84,37 @@ BASE_HTML = """
 """
 
 # --- 5. ROUTES ---
+
 @app.route("/")
 def home():
-    return redirect(url_for('admin_dashboard'))
+    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """
+        <h2>Public Verification Portal</h2>
+        <p>Verify an employee by entering their PBE-UID below.</p>
+        <form onsubmit="window.location.href='/verify/' + document.getElementById('uid').value; return false;">
+            <input type="text" id="uid" placeholder="Enter PBE-UID (e.g. GILBERT...)" required>
+            <br><button class="btn btn-blue">Verify Now</button>
+        </form>
+    """))
 
 @app.route("/admin")
 def admin_dashboard():
-    conn = get_db()
-    cur = conn.cursor()
+    conn = get_db(); cur = conn.cursor()
     cur.execute("SELECT * FROM pbe_master_registry ORDER BY id DESC")
-    workers = cur.fetchall()
-    cur.close(); conn.close()
+    workers = cur.fetchall(); cur.close(); conn.close()
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """
         <h2>Worker Registry</h2>
         <a href="/admin/invite" class="btn btn-green">+ New Invitation</a>
         <table>
-            <tr><th>UID</th><th>Name</th><th>Rank</th><th>Status</th><th>Actions</th></tr>
+            <tr><th>UID</th><th>Name</th><th>License</th><th>Status</th><th>Actions</th></tr>
             {% for w in workers %}
             <tr>
                 <td><b>{{ w[4] }}</b></td>
                 <td>{{ w[1] }}, {{ w[2] }}</td>
-                <td>{{ w[8] }}</td>
+                <td>{{ w[5] }}</td>
                 <td>{{ w[13] }}</td>
                 <td>
                     <a href="/admin/print-id/{{ w[4] }}" class="btn btn-blue">Print</a>
-                    <a href="https://wa.me/{{ w[9] }}?text=PBE Verification: {{ request.url_root }}verify/{{ w[4] }}" class="btn btn-green" target="_blank">WA</a>
+                    <a href="https://wa.me/{{ w[9] }}?text=Verification: {{ request.url_root }}verify/{{ w[4] }}" class="btn btn-green" target="_blank">WA</a>
                     <a href="/admin/delete/{{ w[0] }}" class="btn btn-red" onclick="return confirm('Delete?')">Del</a>
                 </td>
             </tr>
@@ -120,18 +127,17 @@ def invite():
     if request.method == 'POST':
         phone = request.form.get('phone')
         otp = str(random.randint(100000, 999999))
-        conn = get_db()
-        cur = conn.cursor()
+        conn = get_db(); cur = conn.cursor()
         cur.execute("INSERT INTO pbe_master_registry (phone_no, otp_code) VALUES (%s, %s)", (phone, otp))
         conn.commit(); cur.close(); conn.close()
-        msg = f"PBE: Use code {otp} to register at {request.url_root}register"
+        msg = f"PBE Invitation: Use code {otp} to register at {request.url_root}register"
         requests.post("https://sms.arkesel.com/api/v2/sms/send", 
                       json={"sender": ARKESEL_SENDER_ID, "message": msg, "recipients": [phone]},
                       headers={"api-key": ARKESEL_API_KEY})
         return redirect(url_for('admin_dashboard'))
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """
         <h3>Invite Worker</h3>
-        <form method='POST'><input name='phone' placeholder='233...' required><button class='btn btn-blue'>Send OTP</button></form>
+        <form method='POST'><input name='phone' placeholder='233...' required><button class='btn btn-blue'>Send SMS OTP</button></form>
     """))
 
 @app.route("/admin/print-id/<pbe_uid>")
@@ -144,7 +150,7 @@ def print_id(pbe_uid):
     c = canvas.Canvas(buffer, pagesize=(3.375*inch, 2.125*inch))
     template = "POWER BRIDGE ENGINEERING ID CARD TEMPLATE.png"
     if os.path.exists(template): c.drawImage(template, 0, 0, width=3.375*inch, height=2.125*inch)
-    if w[10]: 
+    if w[10]: # photo_url
         try: c.drawImage(w[10], 0.2*inch, 0.65*inch, width=0.9*inch, height=1.1*inch)
         except: pass
     c.setFont("Helvetica-Bold", 7.5); c.setFillColor(colors.black)
@@ -166,9 +172,21 @@ def print_id(pbe_uid):
 @app.route("/verify/<uid>")
 def verify(uid):
     conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT firstname, surname, rank, pbe_license, status FROM pbe_master_registry WHERE pbe_uid = %s", (uid,))
+    cur.execute("SELECT firstname, surname, rank, pbe_license, expiry_date, insurance_date, status FROM pbe_master_registry WHERE pbe_uid = %s", (uid,))
     w = cur.fetchone(); cur.close(); conn.close()
-    if w: return f"<div style='text-align:center; padding:50px; font-family:sans-serif;'><h1>✅ VERIFIED</h1><p>Name: {w[0]} {w[1]}</p><p>Rank: {w[2]}</p><h3>STATUS: {w[4]}</h3></div>"
+    if w:
+        return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", f"""
+            <h1 style='color:green;'>✅ VERIFIED PBE EMPLOYEE</h1>
+            <div style='text-align:left; display:inline-block; border:1px solid #ddd; padding:20px; border-radius:10px;'>
+                <p><b>Name:</b> {w[0]} {w[1]}</p>
+                <p><b>Rank/Role:</b> {w[2]}</p>
+                <p><b>ID Number:</b> {uid}</p>
+                <p><b>License:</b> {w[3]}</p>
+                <p><b>Insurance Date:</b> {w[5]}</p>
+                <p><b>Expiry Date:</b> {w[4]}</p>
+                <p><b>Status:</b> <span style='color:green; font-weight:bold;'>{w[6]}</span></p>
+            </div>
+        """))
     return "<h1>❌ INVALID ID</h1>"
 
 @app.route("/admin/delete/<int:id>")
