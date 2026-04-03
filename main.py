@@ -1,11 +1,4 @@
-import os
-import random
-import string
-import re
-import requests
-import psycopg2
-import cloudinary
-import cloudinary.uploader
+import os, random, string, re, requests, psycopg2, cloudinary, cloudinary.uploader
 from flask import Flask, request, jsonify, render_template_string, send_file, redirect, url_for
 from reportlab.pdfgen import canvas
 from reportlab.graphics.barcode import qr
@@ -30,7 +23,7 @@ app = Flask(__name__)
 def get_db():
     return psycopg2.connect(DATABASE_URL)
 
-# --- 2. SELF-HEALING DATABASE ---
+# --- 2. DATABASE INITIALIZATION ---
 def init_db():
     conn = get_db()
     cur = conn.cursor()
@@ -45,7 +38,6 @@ def init_db():
             otp_code TEXT, status TEXT DEFAULT 'PENDING'
         );
     """)
-    # Ensure all columns exist
     cols = ["dob", "insurance_date", "expiry_date", "ghana_card"]
     for col in cols:
         cur.execute(f"ALTER TABLE pbe_master_registry ADD COLUMN IF NOT EXISTS {col} TEXT;")
@@ -56,14 +48,13 @@ def init_db():
 with app.app_context():
     init_db()
 
-# --- 3. ENCRYPTION ENGINE ---
+# --- 3. UTILITIES ---
 def generate_pbe_code(name):
     clean_name = re.sub(r'[^a-zA-Z]', '', name).upper()
-    chars = string.ascii_uppercase + string.digits
-    random_part = ''.join(random.choices(chars, k=15))
+    random_part = ''.join(random.choices(string.ascii_uppercase + string.digits, k=15))
     return f"{clean_name}{random_part}"[:15]
 
-# --- 4. CLEAN UI DESIGN ---
+# --- 4. UI TEMPLATE ---
 BASE_HTML = """
 <!DOCTYPE html>
 <html>
@@ -77,11 +68,8 @@ BASE_HTML = """
         .container { max-width: 1100px; margin: 20px auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
         table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 0.85em; }
         th, td { border-bottom: 1px solid #ddd; padding: 10px; text-align: left; }
-        .btn { padding: 6px 10px; border-radius: 4px; text-decoration: none; font-size: 12px; display: inline-block; cursor: pointer; border: none; }
-        .btn-blue { background: #0056b3; color: white; }
-        .btn-green { background: #28a745; color: white; }
-        .btn-red { background: #dc3545; color: white; }
-        input { padding: 8px; margin: 5px; border: 1px solid #ddd; border-radius: 4px; }
+        .btn { padding: 6px 10px; border-radius: 4px; text-decoration: none; font-size: 12px; display: inline-block; border: none; color: white; }
+        .btn-blue { background: #0056b3; } .btn-green { background: #28a745; } .btn-red { background: #dc3545; }
     </style>
 </head>
 <body>
@@ -95,7 +83,6 @@ BASE_HTML = """
 """
 
 # --- 5. ROUTES ---
-
 @app.route("/")
 def home():
     return redirect(url_for('admin_dashboard'))
@@ -106,8 +93,7 @@ def admin_dashboard():
     cur = conn.cursor()
     cur.execute("SELECT * FROM pbe_master_registry ORDER BY id DESC")
     workers = cur.fetchall()
-    cur.close()
-    conn.close()
+    cur.close(); conn.close()
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """
         <h2>Worker Registry</h2>
         <a href="/admin/invite" class="btn btn-green">+ New Invitation</a>
@@ -121,7 +107,7 @@ def admin_dashboard():
                 <td>{{ w[13] }}</td>
                 <td>
                     <a href="/admin/print-id/{{ w[4] }}" class="btn btn-blue">Print</a>
-                    <a href="https://wa.me/{{ w[9] }}?text=PBE ID: {{ request.url_root }}verify/{{ w[4] }}" class="btn btn-green" target="_blank">WA</a>
+                    <a href="https://wa.me/{{ w[9] }}?text=PBE Verification: {{ request.url_root }}verify/{{ w[4] }}" class="btn btn-green" target="_blank">WA</a>
                     <a href="/admin/delete/{{ w[0] }}" class="btn btn-red" onclick="return confirm('Delete?')">Del</a>
                 </td>
             </tr>
@@ -137,9 +123,7 @@ def invite():
         conn = get_db()
         cur = conn.cursor()
         cur.execute("INSERT INTO pbe_master_registry (phone_no, otp_code) VALUES (%s, %s)", (phone, otp))
-        conn.commit()
-        cur.close()
-        conn.close()
+        conn.commit(); cur.close(); conn.close()
         msg = f"PBE: Use code {otp} to register at {request.url_root}register"
         requests.post("https://sms.arkesel.com/api/v2/sms/send", 
                       json={"sender": ARKESEL_SENDER_ID, "message": msg, "recipients": [phone]},
@@ -152,12 +136,9 @@ def invite():
 
 @app.route("/admin/print-id/<pbe_uid>")
 def print_id(pbe_uid):
-    conn = get_db()
-    cur = conn.cursor()
+    conn = get_db(); cur = conn.cursor()
     cur.execute("SELECT * FROM pbe_master_registry WHERE pbe_uid = %s", (pbe_uid,))
-    w = cur.fetchone()
-    cur.close()
-    conn.close()
+    w = cur.fetchone(); cur.close(); conn.close()
     if not w: return "Not Found", 404
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=(3.375*inch, 2.125*inch))
@@ -170,9 +151,12 @@ def print_id(pbe_uid):
     x_col = 1.35*inch
     c.drawString(x_col, 1.6*inch, f"SURNAME: {w[1]}".upper())
     c.drawString(x_col, 1.45*inch, f"FIRSTNAME: {w[2]}".upper())
-    c.drawString(x_col, 1.25*inch, f"ID NO: {w[4]}"); c.drawString(x_col, 1.1*inch, f"LICENSE: {w[5]}")
-    c.drawString(x_col, 0.95*inch, f"RANK: {w[8]}"); c.drawString(x_col, 0.8*inch, f"INSURED: {w[6]}")
-    c.drawString(x_col, 0.65*inch, f"EXPIRY: {w[7]}"); c.drawString(x_col, 0.5*inch, f"DOB: {w[3]}")
+    c.drawString(x_col, 1.25*inch, f"ID NO: {w[4]}")
+    c.drawString(x_col, 1.1*inch, f"LICENSE: {w[5]}")
+    c.drawString(x_col, 0.95*inch, f"RANK: {w[8]}")
+    c.drawString(x_col, 0.8*inch, f"INSURED: {w[6]}")
+    c.drawString(x_col, 0.65*inch, f"EXPIRY: {w[7]}")
+    c.drawString(x_col, 0.5*inch, f"DOB: {w[3]}")
     qr_code = qr.QrCodeWidget(f"{request.url_root}verify/{w[4]}")
     bounds = qr_code.getBounds(); width, height = bounds[2]-bounds[0], bounds[3]-bounds[1]
     d = Drawing(45, 45, transform=[45./width,0,0,45./height,0,0]); d.add(qr_code)
@@ -181,8 +165,7 @@ def print_id(pbe_uid):
 
 @app.route("/verify/<uid>")
 def verify(uid):
-    conn = get_db()
-    cur = conn.cursor()
+    conn = get_db(); cur = conn.cursor()
     cur.execute("SELECT firstname, surname, rank, pbe_license, status FROM pbe_master_registry WHERE pbe_uid = %s", (uid,))
     w = cur.fetchone(); cur.close(); conn.close()
     if w: return f"<div style='text-align:center; padding:50px; font-family:sans-serif;'><h1>✅ VERIFIED</h1><p>Name: {w[0]} {w[1]}</p><p>Rank: {w[2]}</p><h3>STATUS: {w[4]}</h3></div>"
@@ -190,8 +173,7 @@ def verify(uid):
 
 @app.route("/admin/delete/<int:id>")
 def delete_worker(id):
-    conn = get_db()
-    cur = conn.cursor()
+    conn = get_db(); cur = conn.cursor()
     cur.execute("DELETE FROM pbe_master_registry WHERE id = %s", (id,))
     conn.commit(); cur.close(); conn.close()
     return redirect(url_for('admin_dashboard'))
