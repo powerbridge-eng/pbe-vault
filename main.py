@@ -13,10 +13,9 @@ ARKESEL_API_KEY = os.environ.get("ARKESEL_API_KEY")
 ARKESEL_SENDER_ID = "PBE_OTP" 
 ADMIN_PASSWORD = "PBE-Global-2026" 
 SUPERVISOR_PASSWORD = "PBE-Super-2026"
-ADMIN_EMAIL = "Powerbridgee@gmail.com"
 
 app = Flask(__name__)
-app.secret_key = "PBE_SUPREME_FINAL_2026"
+app.secret_key = "PBE_SUPREME_MASTER_2026"
 
 cloudinary.config(
     cloud_name = os.environ.get("CLOUDINARY_NAME"),
@@ -27,12 +26,13 @@ cloudinary.config(
 def get_db():
     return psycopg2.connect(DATABASE_URL)
 
-# --- 2. THE GROUND ZERO RESET (Purge and Rebuild) ---
+# --- 2. THE GROUND ZERO RESET (Total Purge) ---
 def init_db():
     conn = get_db(); cur = conn.cursor()
-    # Wipes all old blocks and data to allow your devices back in
+    # Nuclear Wipe: Deletes everything to clear the "Ghost" lockout
     cur.execute("DROP TABLE IF EXISTS pbe_master_registry, pbe_blacklist, pbe_audit_logs CASCADE;")
     
+    # Rebuilding the Complete Infrastructure
     cur.execute("""
         CREATE TABLE pbe_master_registry (
             id SERIAL PRIMARY KEY, surname TEXT, firstname TEXT, dob TEXT,
@@ -49,19 +49,18 @@ def init_db():
 with app.app_context():
     init_db()
 
-# --- 3. THE ENCRYPTION ENGINE (15-Character Mix) ---
+# --- 3. THE ENCRYPTION ENGINE (15-Character Strict Mix) ---
 def generate_pbe_id(firstname):
-    # Mix First Name into a 15-char string
+    # First Name mixed into 15 characters
     clean_f = re.sub(r'[^A-Z]', '', firstname.upper())
     chars = string.ascii_uppercase + string.digits
-    # Calculate how many random chars we need to hit 15
     needed = 15 - len(clean_f)
-    if needed < 0: return clean_f[:15] # Truncate if name is too long
+    if needed < 0: return clean_f[:15]
     random_part = ''.join(random.choices(chars, k=needed))
     return f"{clean_f}{random_part}"
 
 def generate_pbe_license(surname):
-    # Mix Surname into a 15-char string
+    # Surname mixed into 15 characters
     clean_s = re.sub(r'[^A-Z]', '', surname.upper())
     chars = string.ascii_uppercase + string.digits
     needed = 15 - len(clean_s)
@@ -69,7 +68,7 @@ def generate_pbe_license(surname):
     random_part = ''.join(random.choices(chars, k=needed))
     return f"{clean_s}{random_part}"
 
-# --- 4. SECURITY & VANGUARD LOGIC ---
+# --- 4. THE VANGUARD DEFENSE (Corrected Sequence) ---
 def is_blocked(ip):
     conn = get_db(); cur = conn.cursor()
     cur.execute("SELECT blocked_until FROM pbe_blacklist WHERE ip_address = %s", (ip,))
@@ -77,23 +76,26 @@ def is_blocked(ip):
     return True if res and res[0] > datetime.datetime.now() else False
 
 def engage_lockout(ip):
-    until = datetime.datetime.now() + datetime.timedelta(days=3)
+    until = datetime.datetime.now() + datetime.timedelta(days=3) # 72 Hour Lockout
     conn = get_db(); cur = conn.cursor()
     cur.execute("INSERT INTO pbe_blacklist (ip_address, blocked_until) VALUES (%s, %s) ON CONFLICT (ip_address) DO UPDATE SET blocked_until = %s", (ip, until, until))
     conn.commit(); cur.close(); conn.close()
 
 @app.before_request
 def vanguard_gate():
-    if request.args.get('bypass') == 'OPEN': return 
+    # 1. Check for Bypass first (The Master Key)
+    if request.args.get('bypass') == 'OPEN':
+        return 
+    # 2. Check for Blacklist (The Ghost)
     if is_blocked(request.remote_addr) and ("vanguard" in request.path or "admin" in request.path):
         abort(404)
 
-# --- 5. UI DESIGN ---
+# --- 5. UI DESIGN (Permanent PBE Navy) ---
 BASE_HTML = """
 <!DOCTYPE html>
 <html>
 <head>
-    <title>PBE Supreme Command</title>
+    <title>PBE Command HQ</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; margin: 0; text-align: center; }
@@ -106,13 +108,14 @@ BASE_HTML = """
     </style>
 </head>
 <body>
-    <div class="header"><h1>POWER BRIDGE ENGINEERING</h1><p>APEX COMMAND ACTIVE</p></div>
+    <div class="header"><h1>POWER BRIDGE ENGINEERING</h1><p>SUPREME MASTER CONSOLE</p></div>
     <div class="container">{% block content %}{% endblock %}</div>
 </body>
 </html>
 """
 
 # --- 6. ROUTES ---
+
 @app.route("/pbe-vanguard-hq-2026", methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -124,10 +127,11 @@ def login():
             session['logged_in'], session['role'] = True, 'SUPERVISOR'
             return redirect(url_for('admin_dashboard'))
         else:
+            # LOCKOUT ONLY TRIGGERS ON WRONG PASSWORD
             engage_lockout(request.remote_addr)
-            return "<h1>SYSTEM LOCKOUT ENGAGED ❌</h1>"
+            return "<h1>SYSTEM ERROR: UNAUTHORIZED IP LOGGED ❌</h1>"
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """
-        <h2>Secure Command Login</h2>
+        <h2>Secure Command Authorization</h2>
         <form method="POST"><input type="password" name="password" placeholder="Master Key" required><br><br><button class="btn btn-blue">Authorize</button></form>
     """))
 
@@ -137,15 +141,15 @@ def admin_dashboard():
     conn = get_db(); cur = conn.cursor(); cur.execute("SELECT * FROM pbe_master_registry ORDER BY id DESC")
     workers = cur.fetchall(); cur.close(); conn.close()
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """
-        <h2>Personnel Registry</h2>
+        <h2>Personnel Master Registry</h2>
         <div style="margin-bottom:20px;">
             <a href="/admin/invite" class="btn btn-green">+ Invite Personnel</a>
             <a href="/logout" class="btn btn-blue" style="background:#333; margin-left:10px;">Lock Console</a>
         </div>
         <table style="width:100%; border-collapse:collapse;">
-            <tr><th>PBE-ID (15ch)</th><th>Worker Name</th><th>License (15ch)</th><th>Actions</th></tr>
+            <tr><th>PBE-ID</th><th>Worker Name</th><th>Department</th><th>Actions</th></tr>
             {% for w in workers %}
-            <tr><td><b>{{ w[4] }}</b></td><td>{{ w[1] }}, {{ w[2] }}</td><td>{{ w[5] }}</td>
+            <tr><td><b>{{ w[4] }}</b></td><td>{{ w[1] }}, {{ w[2] }}</td><td>{{ w[15] }}</td>
             <td>
                 <a href="/admin/print-id/{{ w[4] }}" class="btn btn-blue">Print</a>
                 {% if role == 'GENERAL' %}<a href="/admin/delete/{{ w[0] }}" class="btn btn-red">Del</a>{% endif %}
@@ -165,7 +169,7 @@ def register():
             gcard = cloudinary.uploader.upload(request.files['gcard_photo'])
             fname, sname = request.form.get('firstname').upper(), request.form.get('surname').upper()
             
-            # THE 15-CHAR NAME MIX LOGIC
+            # The 15-char Encryption Logic
             uid = generate_pbe_id(fname)
             lic = generate_pbe_license(sname)
             
@@ -179,12 +183,12 @@ def register():
             conn.commit(); cur.close(); conn.close()
             return "<h2>ENROLLMENT COMPLETE ✅</h2>"
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", f"""
-        <h3>Personnel Identity Enrollment</h3><form method="POST" enctype="multipart/form-data">
+        <h3>Identity Enrollment</h3><form method="POST" enctype="multipart/form-data">
         <input name="otp" placeholder="SMS OTP" required><input name="surname" placeholder="Surname" required><input name="firstname" placeholder="First Name" required>
         <select name="region">{''.join([f'<option value="{r}">{r}</option>' for r in regions])}</select>
-        <input name="ghana_card" placeholder="Ghana Card ID"><input name="rank" placeholder="Current Role">
+        <input name="ghana_card" placeholder="Ghana Card ID"><input name="rank" placeholder="Role">
         <p>Passport Photo:</p><input type="file" name="photo" required><p>Ghana Card Front:</p><input type="file" name="gcard_photo" required>
-        <br><button class="btn btn-blue">Register Identity</button></form>
+        <br><button class="btn btn-blue">Register</button></form>
     """))
 
 @app.route("/admin/invite", methods=['GET', 'POST'])
@@ -195,7 +199,7 @@ def invite():
         conn = get_db(); cur = conn.cursor()
         cur.execute("INSERT INTO pbe_master_registry (phone_no, otp_code) VALUES (%s, %s)", (phone, otp))
         conn.commit(); cur.close(); conn.close()
-        requests.post("https://sms.arkesel.com/api/v2/sms/send", json={"sender": ARKESEL_SENDER_ID, "message": f"PBE: Use code {otp} at {request.url_root}register", "recipients": [phone]}, headers={"api-key": ARKESEL_API_KEY})
+        requests.post("https://sms.arkesel.com/api/v2/sms/send", json={"sender": ARKESEL_SENDER_ID, "message": f"PBE: Code {otp} at {request.url_root}register", "recipients": [phone]}, headers={"api-key": ARKESEL_API_KEY})
         return redirect(url_for('admin_dashboard'))
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", "<h3>Invite Worker</h3><form method='POST'><input name='phone' placeholder='233...' required><br><button class='btn btn-blue'>Send SMS</button></form>"))
 
