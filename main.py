@@ -7,7 +7,7 @@ from reportlab.lib.units import inch
 from reportlab.lib import colors
 from io import BytesIO
 
-# --- 1. CONFIGURATION & SECRETS ---
+# --- 1. CONFIGURATION ---
 DATABASE_URL = os.environ.get("DATABASE_URL")
 ARKESEL_API_KEY = os.environ.get("ARKESEL_API_KEY")
 ARKESEL_SENDER_ID = "PBE_OTP" 
@@ -15,7 +15,7 @@ ADMIN_PASSWORD = "PBE-Global-2026"
 OFFICE_LINE = "+233541803057"
 
 app = Flask(__name__)
-app.secret_key = "PBE_SUPREME_COMMAND_2026_MASTER"
+app.secret_key = "PBE_SUPREME_MASTER_ULTIMATUM_2026"
 
 cloudinary.config(
     cloud_name = os.environ.get("CLOUDINARY_NAME"),
@@ -26,7 +26,7 @@ cloudinary.config(
 def get_db():
     return psycopg2.connect(DATABASE_URL)
 
-# --- 2. SELF-HEALING DATABASE ---
+# --- 2. INFRASTRUCTURE & AUDIT LOGGING ---
 def init_db():
     conn = get_db(); cur = conn.cursor()
     cur.execute("""
@@ -34,32 +34,39 @@ def init_db():
             id SERIAL PRIMARY KEY, surname TEXT, firstname TEXT, dob TEXT,
             pbe_uid TEXT UNIQUE, pbe_license TEXT UNIQUE, insurance_date TEXT, expiry_date TEXT,
             rank TEXT, phone_no TEXT, photo_url TEXT, ghana_card TEXT,
-            otp_code TEXT, status TEXT DEFAULT 'PENDING', region TEXT, department TEXT, 
-            ghana_card_photo TEXT
+            otp_code TEXT, status TEXT DEFAULT 'PENDING', region TEXT, department TEXT
+        );
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS pbe_audit_logs (
+            id SERIAL PRIMARY KEY, 
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, 
+            action TEXT, 
+            details TEXT, 
+            ip_address TEXT
         );
     """)
     cur.execute("CREATE TABLE IF NOT EXISTS pbe_blacklist (id SERIAL PRIMARY KEY, ip_address TEXT UNIQUE, blocked_until TIMESTAMP);")
     conn.commit(); cur.close(); conn.close()
 
+def log_action(action, details):
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("INSERT INTO pbe_audit_logs (action, details, ip_address) VALUES (%s, %s, %s)",
+                (action, details, request.remote_addr))
+    conn.commit(); cur.close(); conn.close()
+
 with app.app_context():
     init_db()
 
-# --- 3. ENCRYPTION ENGINE (15-Character Mix) ---
-def generate_pbe_id(firstname):
-    clean = re.sub(r'[^A-Z]', '', firstname.upper())
-    chars = string.ascii_uppercase + string.digits
-    needed = 15 - len(clean)
-    if needed < 0: return clean[:15]
-    return f"{clean}{''.join(random.choices(chars, k=needed))}"
+# --- 3. THE 15-CHAR NAME-MIX ENCRYPTION ---
+def generate_pbe_mix(name):
+    clean = re.sub(r'[^A-Z]', '', name.upper())
+    name_part = clean[:6]
+    needed = 15 - len(name_part)
+    nums = ''.join(random.choices(string.digits, k=needed))
+    return f"{name_part}{nums}"
 
-def generate_pbe_license(surname):
-    clean = re.sub(r'[^A-Z]', '', surname.upper())
-    chars = string.ascii_uppercase + string.digits
-    needed = 15 - len(clean)
-    if needed < 0: return clean[:15]
-    return f"{clean}{''.join(random.choices(chars, k=needed))}"
-
-# --- 4. VANGUARD SECURITY ---
+# --- 4. SECURITY (Ghost Protocol) ---
 def is_blocked(ip):
     conn = get_db(); cur = conn.cursor()
     cur.execute("SELECT blocked_until FROM pbe_blacklist WHERE ip_address = %s", (ip,))
@@ -78,31 +85,39 @@ def vanguard_gate():
     if is_blocked(request.remote_addr) and ("admin" in request.path):
         abort(404)
 
-# --- 5. THE DESIGNER INTERFACE ---
+# --- 5. UI DESIGN (Permanent Navy Theme) ---
 BASE_HTML = """
 <!DOCTYPE html>
 <html>
 <head>
-    <title>PBE Command</title><meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PBE Supreme Command</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; margin: 0; text-align: center; }
-        .header { background: #1a3a5a; color: white; padding: 25px; border-bottom: 8px solid #0056b3; }
+        .header { background: #1a3a5a; color: white; padding: 20px; border-bottom: 8px solid #0056b3; }
+        .header img { height: 70px; margin-bottom: 10px; background: white; border-radius: 5px; padding: 5px; }
         .container { max-width: 1200px; margin: 20px auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.1); }
-        .stat-box { display: inline-block; padding: 10px; background: #eee; border-radius: 5px; margin: 10px; font-size: 12px; font-weight: bold; }
-        th, td { border-bottom: 1px solid #eee; padding: 12px; text-align: left; }
-        .btn { padding: 10px 15px; border-radius: 6px; text-decoration: none; color: white; font-weight: bold; font-size: 12px; border: none; cursor: pointer; }
-        .btn-blue { background: #0056b3; } .btn-green { background: #28a745; } .btn-red { background: #dc3545; }
-        input, select { padding: 12px; margin: 8px 0; border: 1px solid #ddd; width: 100%; max-width: 400px; border-radius: 6px; }
+        .stat-bar { margin-bottom: 20px; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+        .stat-item { background: #eef2f7; padding: 10px; border-radius: 8px; font-weight: bold; font-size: 11px; border-bottom: 3px solid #0056b3; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 12px; }
+        th, td { border-bottom: 1px solid #eee; padding: 10px; text-align: left; }
+        .btn { padding: 8px 12px; border-radius: 5px; text-decoration: none; color: white; font-weight: bold; font-size: 11px; border: none; cursor: pointer; display: inline-block; }
+        .btn-blue { background: #0056b3; } .btn-green { background: #28a745; } .btn-red { background: #dc3545; } .btn-wa { background: #25D366; } .btn-mail { background: #EA4335; }
+        input { padding: 12px; margin: 8px 0; border: 1px solid #ddd; width: 100%; max-width: 400px; border-radius: 6px; }
     </style>
 </head>
 <body>
-    <div class="header"><h1>POWER BRIDGE ENGINEERING</h1><p>SUPREME COMMAND CENTER</p></div>
+    <div class="header">
+        <img src="{{ url_for('static', filename='logo.png') }}" onerror="this.style.display='none'">
+        <div style="font-size: 24px; font-weight: bold; color: #ffcc00; letter-spacing: 2px;">POWER BRIDGE ENGINEERING</div>
+        <p style="margin:0; font-size:12px; opacity:0.8;">SUPREME COMMAND CENTER</p>
+    </div>
     <div class="container">{% block content %}{% endblock %}</div>
 </body>
 </html>
 """
 
-# --- 6. ROUTES & COMMANDS ---
+# --- 6. ROUTES ---
 
 @app.route("/")
 def index(): return redirect(url_for('login'))
@@ -111,9 +126,11 @@ def index(): return redirect(url_for('login'))
 def login():
     if request.method == 'POST':
         if request.form.get('password') == ADMIN_PASSWORD:
-            session['logged_in'] = True; return redirect(url_for('admin_dashboard'))
+            session['logged_in'] = True
+            log_action("HQ_LOGIN", "Master Key used")
+            return redirect(url_for('admin_dashboard'))
         engage_lockout(request.remote_addr); return "<h1>SYSTEM LOCKED ❌</h1>"
-    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", '<h3>Admin Authorization</h3><form method="POST"><input type="password" name="password" placeholder="Master Key" required><br><button class="btn btn-blue">Unlock</button></form>'))
+    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", '<h3>Authorization</h3><form method="POST"><input type="password" name="password" placeholder="Key" required><br><button class="btn btn-blue">Unlock</button></form>'))
 
 @app.route("/admin-dashboard")
 def admin_dashboard():
@@ -122,23 +139,25 @@ def admin_dashboard():
     # FETCH ARKESEL BALANCE
     balance = "Check Failed"
     try:
-        r = requests.get(f"https://sms.arkesel.com/api/v2/clients/balance", headers={"api-key": ARKESEL_API_KEY})
-        balance = r.json().get('data', {}).get('available_balance', "N/A")
+        r = requests.get(f"https://sms.arkesel.com/api/v2/clients/balance", headers={"api-key": ARKESEL_API_KEY}, timeout=5)
+        if r.status_code == 200: balance = f"{r.json().get('data', {}).get('available_balance', '0.00')} GHS"
     except: pass
 
     conn = get_db(); cur = conn.cursor(); cur.execute("SELECT * FROM pbe_master_registry ORDER BY id DESC")
     workers = cur.fetchall(); cur.close(); conn.close()
     
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", f"""
-        <div class="stat-box">SMS BALANCE: {balance} GHS</div>
-        <div class="stat-box"><a href="https://cloudinary.com/console" target="_blank" style="color:black;">CLOUDINARY STORAGE</a></div>
-        <hr>
+        <div class="stat-bar">
+            <div class="stat-item">SMS: {balance}</div>
+            <div class="stat-item"><a href="https://cloudinary.com/console" target="_blank" style="color:inherit; text-decoration:none;">CLOUDINARY</a></div>
+            <div class="stat-item"><a href="/admin/audit-logs" style="color:inherit; text-decoration:none;">AUDIT LOGS</a></div>
+        </div>
         <div style="display:flex; justify-content: space-between; align-items:center;">
-            <h3>Workforce Registry</h3>
-            <a href="/admin/invite" class="btn btn-green">+ Invite Personnel</a>
+            <h3>Active workforce Registry</h3>
+            <a href="/admin/invite" class="btn btn-green">+ Invite worker</a>
         </div>
         <table>
-            <tr><th>UID</th><th>Name</th><th>Status</th><th>Actions</th></tr>
+            <tr><th>ID NUMBER</th><th>Full Name</th><th>Status</th><th>Commands</th></tr>
             {{% for w in workers %}}
             <tr>
                 <td><b>{{{{ w[4] or 'PENDING' }}}}</b></td>
@@ -149,8 +168,10 @@ def admin_dashboard():
                     <a href="/admin/approve/{{{{ w[0] }}}}" class="btn btn-green">Approve</a>
                     {{% else %}}
                     <a href="/admin/print-id/{{{{ w[4] }}}}" class="btn btn-blue">Print</a>
+                    <a href="https://wa.me/{{{{ w[9] }}}}?text=PBE Identity Verified: {{{{ request.url_root }}}}verify/{{{{ w[4] }}}}" class="btn btn-wa" target="_blank">WA</a>
+                    <a href="mailto:?subject=PBE Identity&body=ID: {{{{ request.url_root }}}}verify/{{{{ w[4] }}}}" class="btn btn-mail">Email</a>
                     {{% endif %}}
-                    <a href="/admin/delete/{{{{ w[0] }}}}" class="btn btn-red">Del</a>
+                    <a href="/admin/delete/{{{{ w[0] }}}}" class="btn btn-red" onclick="return confirm('Delete?')">Del</a>
                 </td>
             </tr>
             {{% endfor %}}
@@ -166,21 +187,73 @@ def register():
         if cur.fetchone():
             photo = cloudinary.uploader.upload(request.files['photo'])
             fname, sname = request.form.get('firstname').upper(), request.form.get('surname').upper()
-            uid, lic = generate_pbe_id(fname), generate_pbe_license(sname)
+            uid = generate_pbe_mix(fname)
+            lic = generate_pbe_mix(sname)
             cur.execute("""UPDATE pbe_master_registry SET surname=%s, firstname=%s, dob=%s, pbe_uid=%s, pbe_license=%s,
                         ghana_card=%s, photo_url=%s, status='PENDING', rank=%s, department=%s WHERE otp_code=%s""",
                         (sname, fname, request.form.get('dob'), uid, lic, request.form.get('ghana_card'),
                         photo['secure_url'], request.form.get('rank'), request.form.get('department'), otp))
             conn.commit(); cur.close(); conn.close()
-            return "<h2>ENROLLMENT SUBMITTED ✅ awaiting Admin Review.</h2>"
-    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", '<form method="POST" enctype="multipart/form-data"><input name="otp" placeholder="OTP"><input name="surname" placeholder="Surname"><input name="firstname" placeholder="Firstname"><input name="dob" placeholder="DOB"><input name="department" placeholder="Dept"><input name="rank" placeholder="Rank"><input name="ghana_card" placeholder="GHA-ID"><input type="file" name="photo" required><br><button class="btn btn-blue">Submit Registration</button></form>'))
+            log_action("ENROLLMENT", f"Submission: {fname} {sname}")
+            return """<div style='text-align:center; padding:50px; font-family:sans-serif;'>
+                        <h2 style='color:green;'>SUBMITTED SUCCESSFULLY ✅</h2>
+                        <p>We will respond within 3 working days. For enquiries, contact the office.</p>
+                      </div>"""
+    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", '<form method="POST" enctype="multipart/form-data"><input name="otp" placeholder="OTP" required><input name="surname" placeholder="Surname"><input name="firstname" placeholder="First Name"><input name="dob" placeholder="DOB"><input name="department" placeholder="Dept"><input name="rank" placeholder="Rank"><input name="ghana_card" placeholder="GHA-ID"><input type="file" name="photo" required><br><button class="btn btn-blue">Submit</button></form>'))
+
+@app.route("/admin/audit-logs")
+def view_logs():
+    if not session.get('logged_in'): return redirect(url_for('login'))
+    conn = get_db(); cur = conn.cursor(); cur.execute("SELECT * FROM pbe_audit_logs ORDER BY timestamp DESC LIMIT 100")
+    logs = cur.fetchall(); cur.close(); conn.close()
+    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """
+        <h3>System Audit Logs</h3>
+        <table><tr><th>Time</th><th>Action</th><th>Details</th><th>IP</th></tr>
+        {% for l in logs %}
+        <tr><td>{{l[1]}}</td><td>{{l[2]}}</td><td>{{l[3]}}</td><td>{{l[4]}}</td></tr>
+        {% endfor %}</table><br><a href="/admin-dashboard" class="btn btn-blue">Back</a>
+    """), logs=logs)
 
 @app.route("/admin/approve/<int:id>")
 def approve_worker(id):
     if not session.get('logged_in'): return redirect(url_for('login'))
     conn = get_db(); cur = conn.cursor()
     cur.execute("UPDATE pbe_master_registry SET status='ACTIVE' WHERE id=%s", (id,))
-    conn.commit(); cur.close(); conn.close(); return redirect(url_for('admin_dashboard'))
+    conn.commit(); cur.close(); conn.close()
+    log_action("APPROVAL", f"ID Approved: {id}")
+    return redirect(url_for('admin_dashboard'))
+
+@app.route("/admin/print-id/<pbe_uid>")
+def print_id(pbe_uid):
+    if not session.get('logged_in'): return redirect(url_for('login'))
+    conn = get_db(); cur = conn.cursor(); cur.execute("SELECT * FROM pbe_master_registry WHERE pbe_uid = %s", (pbe_uid,))
+    w = cur.fetchone(); cur.close(); conn.close()
+    
+    buffer = BytesIO(); c = canvas.Canvas(buffer, pagesize=(3.375*inch, 2.125*inch))
+    
+    # TEMPLATE LOADING
+    template_path = os.path.join(app.root_path, 'static', 'Power Bridge Engineering ID Identity Template.png')
+    if os.path.exists(template_path): c.drawImage(template_path, 0, 0, width=3.375*inch, height=2.125*inch)
+
+    # PHOTO & DATA MAPPING
+    if w[10]: c.drawImage(w[10], 0.18*inch, 0.58*inch, width=1.0*inch, height=1.2*inch)
+    c.setFont("Helvetica-Bold", 7.5); c.setFillColor(colors.black)
+    x_pos = 1.35*inch
+    c.drawString(x_pos, 1.55*inch, f"{w[1]}") # Surname
+    c.drawString(x_pos, 1.40*inch, f"{w[2]}") # Firstname
+    c.setFont("Helvetica", 6.5)
+    c.drawString(x_pos, 1.22*inch, f"{w[4]}") # ID
+    c.drawString(x_pos, 1.08*inch, f"{w[5]}") # License
+    c.drawString(x_pos, 0.94*inch, f"{w[8]}") # Rank
+    c.drawString(x_pos, 0.80*inch, f"{w[15]}") # Dept
+
+    qr_code = qr.QrCodeWidget(f"{request.url_root}verify/{w[4]}")
+    bounds = qr_code.getBounds(); d = Drawing(40, 40, transform=[40./(bounds[2]-bounds[0]),0,0,40./(bounds[3]-bounds[1]),0,0])
+    d.add(qr_code); d.drawOn(c, 2.8*inch, 0.15*inch)
+    
+    c.showPage(); c.save(); buffer.seek(0)
+    log_action("PRINT", f"ID Printed: {pbe_uid}")
+    return send_file(buffer, mimetype='application/pdf')
 
 @app.route("/admin/invite", methods=['GET', 'POST'])
 def invite():
@@ -190,44 +263,20 @@ def invite():
         conn = get_db(); cur = conn.cursor(); cur.execute("INSERT INTO pbe_master_registry (phone_no, otp_code) VALUES (%s, %s)", (phone, otp)); conn.commit(); cur.close(); conn.close()
         requests.post("https://sms.arkesel.com/api/v2/sms/send", json={"sender": ARKESEL_SENDER_ID, "message": f"PBE: Use Code {otp} at {request.url_root}register", "recipients": [phone]}, headers={"api-key": ARKESEL_API_KEY})
         return redirect(url_for('admin_dashboard'))
-    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", '<h3>Invite</h3><form method="POST"><input name="phone" placeholder="233..."><button class="btn btn-blue">Send SMS</button></form>'))
-
-@app.route("/admin/print-id/<pbe_uid>")
-def print_id(pbe_uid):
-    if not session.get('logged_in'): return redirect(url_for('login'))
-    conn = get_db(); cur = conn.cursor(); cur.execute("SELECT * FROM pbe_master_registry WHERE pbe_uid = %s", (pbe_uid,))
-    w = cur.fetchone(); cur.close(); conn.close()
-    buffer = BytesIO(); c = canvas.Canvas(buffer, pagesize=(3.375*inch, 2.125*inch))
-    template_path = os.path.join(app.root_path, 'static', 'Power Bridge Engineering ID Identity Template.png')
-    if os.path.exists(template_path): c.drawImage(template_path, 0, 0, width=3.375*inch, height=2.125*inch)
-    if w[10]: c.drawImage(w[10], 0.18*inch, 0.58*inch, width=0.98*inch, height=1.18*inch)
-    c.setFont("Helvetica-Bold", 7); c.setFillColor(colors.black)
-    x_pos = 1.35*inch
-    c.drawString(x_pos, 1.55*inch, f"{w[1]}") # Surname
-    c.drawString(x_pos, 1.40*inch, f"{w[2]}") # Firstname
-    c.setFont("Helvetica", 6.5)
-    c.drawString(x_pos, 1.22*inch, f"{w[4]}") # ID
-    c.drawString(x_pos, 1.08*inch, f"{w[5]}") # License
-    c.drawString(x_pos, 0.94*inch, f"{w[8]}") # Rank
-    c.drawString(x_pos, 0.80*inch, f"{w[15]}") # Dept
-    qr_code = qr.QrCodeWidget(f"{request.url_root}verify/{w[4]}")
-    bounds = qr_code.getBounds(); d = Drawing(40, 40, transform=[40./(bounds[2]-bounds[0]),0,0,40./(bounds[3]-bounds[1]),0,0])
-    d.add(qr_code); d.drawOn(c, 2.8*inch, 0.15*inch)
-    c.showPage(); c.save(); buffer.seek(0)
-    return send_file(buffer, mimetype='application/pdf')
-
-@app.route("/verify/<pbe_uid>")
-def verify(pbe_uid):
-    conn = get_db(); cur = conn.cursor(); cur.execute("SELECT * FROM pbe_master_registry WHERE pbe_uid = %s AND status='ACTIVE'", (pbe_uid,))
-    w = cur.fetchone(); cur.close(); conn.close()
-    if not w: return "<h1>VERIFICATION FAILED / INACTIVE ❌</h1>", 404
-    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", f'<h2 style="color:green;">✓ VERIFIED ENGINEER</h2><p><b>{w[2]} {w[1]}</b></p><p>Rank: {w[8]}</p><p>Office: {OFFICE_LINE}</p>'))
+    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", '<h3>Invite Personnel</h3><form method="POST"><input name="phone" placeholder="233..."><button class="btn btn-blue">Send SMS</button></form>'))
 
 @app.route("/admin/delete/<int:id>")
 def delete_worker(id):
     if not session.get('logged_in'): return redirect(url_for('login'))
     conn = get_db(); cur = conn.cursor(); cur.execute("DELETE FROM pbe_master_registry WHERE id=%s", (id,)); conn.commit(); cur.close(); conn.close()
     return redirect(url_for('admin_dashboard'))
+
+@app.route("/verify/<pbe_uid>")
+def verify(pbe_uid):
+    conn = get_db(); cur = conn.cursor(); cur.execute("SELECT * FROM pbe_master_registry WHERE pbe_uid = %s AND status='ACTIVE'", (pbe_uid,))
+    w = cur.fetchone(); cur.close(); conn.close()
+    if not w: return "<h1>VERIFICATION FAILED ❌</h1>", 404
+    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", f'<h2 style="color:green;">✓ VERIFIED PBE ENGINEER</h2><p><b>{w[2]} {w[1]}</b></p><p>Rank: {w[8]}</p><p>Office: {OFFICE_LINE}</p>'))
 
 @app.route("/logout")
 def logout(): session.clear(); return redirect(url_for('login'))
