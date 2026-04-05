@@ -15,7 +15,7 @@ ADMIN_PASSWORD = "PBE-Global-2026"
 OFFICE_LINE = "+233541803057"
 
 app = Flask(__name__)
-app.secret_key = "PBE_ABSOLUTE_FINAL_BUILD_2026"
+app.secret_key = "PBE_GLOBAL_INFRA_2026_FIXED"
 
 cloudinary.config(
     cloud_name = os.environ.get("CLOUDINARY_NAME"),
@@ -26,7 +26,7 @@ cloudinary.config(
 def get_db():
     return psycopg2.connect(DATABASE_URL)
 
-# --- 2. THE PBE WORLD MATRIX ---
+# --- 2. GLOBAL INFRASTRUCTURE SECTORS ---
 PBE_GUILDS = [
     "ELECTRICAL ENGINEERING", "SOLAR & ENERGY", "PLUMBING & HYDRAULICS", 
     "MASONRY & CONSTRUCTION", "MECHANICAL & AUTO", "PBE TV", 
@@ -35,7 +35,7 @@ PBE_GUILDS = [
 
 GHANA_REGIONS = ["Greater Accra", "Ashanti", "Western", "Central", "Eastern", "Volta", "Northern", "Upper East", "Upper West", "Bono", "Bono East", "Ahafo", "Savannah", "North East", "Oti", "Western North"]
 
-# --- 3. INFRASTRUCTURE & SOUL TRACKER ---
+# --- 3. DATABASE & SOUL TRACKER ---
 def init_db():
     conn = get_db(); cur = conn.cursor()
     cur.execute("""
@@ -65,14 +65,13 @@ def log_soul_action(action, details):
 with app.app_context():
     init_db()
 
-# --- 4. 15-CHAR GENERATION ---
 def generate_15_char(name):
     clean = re.sub(r'[^A-Z]', '', name.upper())
     part = clean[:6]
     needed = 15 - len(part)
     return f"{part}{''.join(random.choices(string.digits + string.ascii_uppercase, k=needed))}"
 
-# --- 5. UI DESIGN ---
+# --- 4. THE INTERFACE (MATCHING YOUR SCREENSHOTS) ---
 BASE_HTML = """
 <!DOCTYPE html>
 <html>
@@ -80,24 +79,23 @@ BASE_HTML = """
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
     <title>PBE Command Center</title>
     <style>
-        :root { --navy: #343a40; --gold: #ffc107; --bg: #f4f6f9; --text: #495057; }
-        body { font-family: 'Segoe UI', Tahoma, sans-serif; background: var(--bg); margin: 0; color: var(--text); padding-bottom: 100px; }
+        :root { --navy: #343a40; --gold: #ffc107; --bg: #f4f6f9; --text: #495057; --green: #28a745; --blue: #007bff; --red: #dc3545; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); margin: 0; padding-bottom: 80px; }
         .header { background: var(--navy); color: white; padding: 25px; text-align: center; border-bottom: 4px solid var(--gold); }
         .logo { height: 60px; margin-bottom: 10px; border-radius: 50%; }
         .container { max-width: 1200px; margin: auto; padding: 15px; }
         .search-container { display: flex; gap: 10px; margin-bottom: 20px; align-items: center; flex-wrap: wrap; }
-        .search-bar { flex: 1; padding: 15px; border-radius: 10px; border: 1px solid #dee2e6; font-size: 16px; outline: none; background: #fff; min-width: 280px; }
-        .sms-balance { background: #fff; padding: 15px; border-radius: 10px; border: 1px solid #dee2e6; font-weight: bold; }
+        .search-bar { flex: 1; padding: 15px; border-radius: 10px; border: 1px solid #dee2e6; font-size: 16px; outline: none; }
+        .balance-badge { background: #fff; padding: 12px 20px; border-radius: 10px; border: 1px solid #dee2e6; font-weight: bold; min-width: 160px; text-align: center; }
         .section-card { background: #fff; border-radius: 15px; padding: 20px; margin-bottom: 20px; border: 1px solid #e9ecef; }
-        .section-title { font-size: 13px; font-weight: 800; color: #6c757d; text-transform: uppercase; margin-bottom: 15px; border-left: 4px solid var(--navy); padding-left: 10px; }
         .guild-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
-        .guild-btn { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 10px; padding: 15px 5px; text-align: center; text-decoration: none; color: var(--navy); font-size: 11px; font-weight: bold; }
+        .guild-btn { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 10px; padding: 15px 5px; text-align: center; text-decoration: none; color: var(--navy); font-size: 11px; font-weight: bold; transition: 0.2s; }
         .guild-active { background: var(--navy); color: var(--gold); border-color: var(--gold); }
-        .registry-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-        .registry-table th { text-align: left; padding: 12px; border-bottom: 2px solid #dee2e6; }
-        .registry-table td { padding: 15px 12px; border-bottom: 1px solid #f1f3f5; }
+        .pbe-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .pbe-table th { text-align: left; padding: 12px; border-bottom: 2px solid #dee2e6; }
+        .pbe-table td { padding: 15px 12px; border-bottom: 1px solid #f1f3f5; }
         .btn-cmd { padding: 8px 12px; border-radius: 6px; color: white; text-decoration: none; font-size: 10px; font-weight: bold; margin-right: 5px; display: inline-block; }
-        .bg-blue { background: #007bff; } .bg-wa { background: #28a745; } .bg-red { background: #dc3545; }
+        .bg-blue { background: var(--blue); } .bg-wa { background: var(--green); } .bg-red { background: var(--red); }
         .fab { position: fixed; bottom: 30px; right: 30px; width: 65px; height: 65px; background: var(--navy); color: var(--gold); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 32px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); text-decoration: none; z-index: 1001; border: 2px solid var(--gold); }
     </style>
 </head>
@@ -110,7 +108,7 @@ BASE_HTML = """
     <a href="/admin/invite" class="fab">＋</a>
     <script>
         function filterRegistry() {
-            let filter = document.getElementById('globalSearch').value.toUpperCase();
+            let filter = document.getElementById('mainSearch').value.toUpperCase();
             document.querySelectorAll('.worker-row').forEach(row => {
                 row.style.display = row.innerText.toUpperCase().includes(filter) ? '' : 'none';
             });
@@ -120,47 +118,66 @@ BASE_HTML = """
 </html>
 """
 
-# --- 6. ROUTES ---
+# --- 5. FIXED ROUTES ---
+
+@app.route("/")
+def home_gateway():
+    return redirect(url_for('pbe_login'))
+
+@app.route("/pbe-vanguard-hq-2026", methods=['GET', 'POST'])
+def pbe_login():
+    if request.method == 'POST':
+        if request.form.get('password') == ADMIN_PASSWORD:
+            session['logged_in'] = True
+            log_soul_action("LOGIN", "Admin authorized entry")
+            return redirect(url_for('admin_dashboard'))
+    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", '<div class="section-card" style="max-width:350px; margin: 100px auto; text-align:center;"><h3>SYSTEM LOCK</h3><form method="POST"><input type="password" name="password" style="width:100%; padding:15px; border-radius:10px; border:1px solid #ddd; margin-bottom:15px;" placeholder="Master Key" required><button class="btn-cmd bg-blue" style="width:100%; padding:15px;">UNLOCK</button></form></div>'))
 
 @app.route("/admin-dashboard")
 def admin_dashboard():
-    if not session.get('logged_in'): return redirect(url_for('login'))
+    if not session.get('logged_in'): return redirect(url_for('pbe_login'))
     
-    sms_live = "..."
+    # LIVE ARKESEL BALANCE PULSE
+    sms_live = "CHECKING..."
     try:
         r = requests.get("https://sms.arkesel.com/api/v2/clients/balance", headers={"api-key": ARKESEL_API_KEY}, timeout=3)
-        sms_live = f"{r.json().get('data', {}).get('available_balance', '0.00')} GHS"
+        if r.status_code == 200:
+            bal = r.json().get('data', {}).get('available_balance', '0.00')
+            sms_live = f"{bal} GHS LEFT"
     except: sms_live = "OFFLINE"
 
     conn = get_db(); cur = conn.cursor()
     dept = request.args.get('dept')
     if dept: cur.execute("SELECT * FROM pbe_master_registry WHERE department = %s ORDER BY id DESC", (dept,))
     else: cur.execute("SELECT * FROM pbe_master_registry ORDER BY id DESC")
+    
     workers = cur.fetchall(); cur.close(); conn.close()
 
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", f"""
         <div class="search-container">
-            <input type="text" id="globalSearch" class="search-bar" placeholder="Search Names, ID or License..." onkeyup="filterRegistry()">
-            <div class="sms-balance">SMS: {sms_live}</div>
+            <input type="text" id="mainSearch" class="search-bar" placeholder="Search Names, ID or License..." onkeyup="filterRegistry()">
+            <div class="balance-badge">SMS: {sms_live}</div>
         </div>
+
         <div class="section-card">
-            <div class="section-title">🛠️ TECHNICAL GUILDS</div>
+            <div style="font-size:11px; font-weight:800; color:#6c757d; margin-bottom:10px;">🛠️ TECHNICAL GUILDS</div>
             <div class="guild-grid">
-                <a href="/admin-dashboard" class="guild-btn {{{{ 'guild-active' if not current_dept }}}}">GLOBAL</a>
+                <a href="/admin-dashboard" class="guild-btn {{{{ 'guild-active' if not current_dept }}}}">GLOBAL WORLD</a>
                 {{% for g in guilds %}}
                 <a href="/admin-dashboard?dept={{{{ g }}}}" class="guild-btn {{{{ 'guild-active' if current_dept == g }}}}">{{{{ g }}}}</a>
                 {{% endfor %}}
             </div>
         </div>
+
         <div class="section-card">
-            <div class="section-title">👥 PERSONNEL REGISTRY</div>
+            <div style="font-size:11px; font-weight:800; color:#6c757d; margin-bottom:10px;">👥 PERSONNEL REGISTRY</div>
             <div style="overflow-x:auto;">
-                <table class="registry-table">
+                <table class="pbe-table">
                     <thead><tr><th>PBE-ID / LICENSE</th><th>NAME</th><th>RANK</th><th>STATUS</th><th>COMMANDS</th></tr></thead>
                     <tbody>
                         {{% for w in workers %}}
                         <tr class="worker-row">
-                            <td>ID: <b>{{{{ w[6] }}}}</b><br>LIC: <small>{{{{ w[7] }}}}</small></td>
+                            <td><b>{{{{ w[6] }}}}</b><br><small style="color:gray;">LIC: {{{{ w[7] }}}}</small></td>
                             <td>{{{{ w[1] }}}}, {{{{ w[2] }}}}</td>
                             <td>{{{{ w[10] }}}}</td>
                             <td><b style="color:{{{{ '#28a745' if w[15]=='ACTIVE' else 'orange' }}}};">{{{{ w[15] }}}}</b></td>
@@ -186,9 +203,7 @@ def register():
             fname, sname = request.form.get('firstname').upper().replace(" ", "_"), request.form.get('surname').upper().replace(" ", "_")
             photo = cloudinary.uploader.upload(request.files['photo'], public_id=f"PBE_PP_{fname}_{sname}")
             
-            # BOTH Credentials are now generated as 15-char Name-Mixes
-            uid = generate_15_char(fname)
-            lic = generate_15_char(sname)
+            uid, lic = generate_15_char(fname), generate_15_char(sname)
             
             cur.execute("""UPDATE pbe_master_registry SET surname=%s, firstname=%s, dob=%s, pbe_uid=%s, pbe_license=%s,
                         issuance_date=%s, expiry_date=%s, rank=%s, department=%s, photo_url=%s, 
@@ -199,6 +214,7 @@ def register():
                         request.form.get('region'), request.form.get('station'), otp))
             conn.commit(); cur.close(); conn.close()
             return "<div style='text-align:center; padding:100px;'><h1>RECEIVED ✅</h1></div>"
+
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """
         <div class="section-card" style="max-width:500px; margin: auto;">
             <h3>ENROLLMENT</h3>
@@ -218,7 +234,7 @@ def register():
 
 @app.route("/admin/print-id/<pbe_uid>")
 def print_id(pbe_uid):
-    if not session.get('logged_in'): return redirect(url_for('login'))
+    if not session.get('logged_in'): return redirect(url_for('pbe_login'))
     conn = get_db(); cur = conn.cursor(); cur.execute("SELECT * FROM pbe_master_registry WHERE pbe_uid = %s", (pbe_uid,))
     w = cur.fetchone(); cur.close(); conn.close()
     
@@ -230,8 +246,8 @@ def print_id(pbe_uid):
     c.setFont("Helvetica-Bold", 7.5); c.setFillColor(colors.black)
     c.drawString(1.35*inch, 1.55*inch, f"{w[1]}") # Surname
     c.drawString(1.35*inch, 1.40*inch, f"{w[2]}") # Firstname
-    c.drawString(1.35*inch, 1.25*inch, f"{w[6]}") # ID Number (15 char)
-    c.drawString(1.35*inch, 1.10*inch, f"{w[7]}") # LICENSE Number (15 char)
+    c.drawString(1.35*inch, 1.25*inch, f"{w[6]}") # ID Number
+    c.drawString(1.35*inch, 1.10*inch, f"{w[7]}") # License Number
     
     qr_code = qr.QrCodeWidget(f"{request.url_root}verify/{w[6]}")
     bounds = qr_code.getBounds(); d = Drawing(40, 40, transform=[40./(bounds[2]-bounds[0]),0,0,40./(bounds[3]-bounds[1]),0,0])
@@ -239,7 +255,24 @@ def print_id(pbe_uid):
     c.showPage(); c.save(); buffer.seek(0)
     return send_file(buffer, mimetype='application/pdf')
 
-# [Rest of routes: login, invite, delete, etc. maintained exactly as discussed]
+@app.route("/admin/invite", methods=['GET', 'POST'])
+def invite():
+    if not session.get('logged_in'): return redirect(url_for('pbe_login'))
+    if request.method == 'POST':
+        phone, otp = request.form.get('phone'), str(random.randint(111111, 999999))
+        conn = get_db(); cur = conn.cursor(); cur.execute("INSERT INTO pbe_master_registry (phone_no, otp_code) VALUES (%s, %s)", (phone, otp)); conn.commit(); cur.close(); conn.close()
+        requests.post("https://sms.arkesel.com/api/v2/sms/send", json={"sender": ARKESEL_SENDER_ID, "message": f"PBE: Use Code {otp} at {request.url_root}register", "recipients": [phone]}, headers={"api-key": ARKESEL_API_KEY})
+        return redirect(url_for('admin_dashboard'))
+    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", '<div class="section-card" style="max-width:400px; margin:auto;"><h3>INVITE</h3><form method="POST"><input name="phone" placeholder="233..." style="width:100%; padding:12px;"><button class="btn-cmd bg-blue" style="width:100%; padding:15px; margin-top:10px;">SEND SMS</button></form></div>'))
+
+@app.route("/admin/delete/<int:id>")
+def delete_worker(id):
+    if not session.get('logged_in'): return redirect(url_for('pbe_login'))
+    conn = get_db(); cur = conn.cursor(); cur.execute("DELETE FROM pbe_master_registry WHERE id=%s", (id,)); conn.commit(); cur.close(); conn.close()
+    return redirect(url_for('admin_dashboard'))
+
+@app.route("/logout")
+def logout(): session.clear(); return redirect(url_for('pbe_login'))
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
