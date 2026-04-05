@@ -7,16 +7,15 @@ from reportlab.lib.units import inch
 from reportlab.lib import colors
 from io import BytesIO, StringIO
 
-# --- 1. CORE INTEGRATION (Environment Variables) ---
+# --- 1. CORE CONFIGURATION (Environment Sync) ---
 DATABASE_URL = os.environ.get("DATABASE_URL")
 ARKESEL_API_KEY = os.environ.get("ARKESEL_API_KEY")
-ARKESEL_SENDER_ID = "PBE_OTP" # Hard-coded Block Letters
+ARKESEL_SENDER_ID = "PBE_OTP" # Locked in Block Letters
 ADMIN_PASSWORD = "PBE-Global-2026"
 OFFICIAL_WA = "233245630637"
-OFFICIAL_MAIL = "arkuhgilbert@gmail.com"
 
 app = Flask(__name__)
-app.secret_key = "PBE_VANGUARD_STRATEGIC_ULTIMATUM_2026"
+app.secret_key = "PBE_ABSOLUTE_ULTIMATUM_2026_FINAL"
 
 cloudinary.config(
     cloud_name = os.environ.get("CLOUDINARY_NAME"),
@@ -31,7 +30,7 @@ def get_db():
 PBE_GUILDS = ["Electrical Engineering", "Solar & Energy", "Plumbing & Hydraulics", "Masonry & Construction", "Mechanical & Auto", "PBE TV", "CCTV & Security", "ICT & Software", "HVAC & Cooling", "General Technical", "ETC"]
 GHANA_REGIONS = ["Greater Accra", "Ashanti", "Western", "Central", "Eastern", "Volta", "Northern", "Upper East", "Upper West", "Bono", "Bono East", "Ahafo", "Savannah", "North East", "Oti", "Western North"]
 
-# --- 3. DATABASE & TERRITORIAL SOUL TRACKER ---
+# --- 3. DATABASE & TERRITORIAL GPS TRACKER ---
 def init_db():
     conn = get_db(); cur = conn.cursor()
     cur.execute("""
@@ -54,7 +53,7 @@ def log_soul_action(action, details):
     ip = request.remote_addr
     location = "HQ_SECURE_ZONE"
     try:
-        # REAL-TIME TERRITORIAL GPS TRACKING
+        # REAL-TIME TERRITORIAL GPS PINPOINT
         geo = requests.get(f"http://ip-api.com/json/{ip}?fields=status,city,regionName,lat,lon", timeout=3).json()
         if geo['status'] == 'success':
             location = f"{geo['city']}, {geo['regionName']} ({geo['lat']}, {geo['lon']})"
@@ -68,7 +67,7 @@ def log_soul_action(action, details):
 with app.app_context():
     init_db()
 
-# --- 4. CLOAKED INTERFACE (NO HQ BUTTON FOR WORKERS) ---
+# --- 4. CLOAKED INTERFACE (NO HQ BUTTON) ---
 BASE_HTML = """
 <!DOCTYPE html>
 <html>
@@ -79,23 +78,21 @@ BASE_HTML = """
         :root { --navy: #0a192f; --gold: #ffcc00; --red: #e63946; --green: #25D366; --blue: #007bff; --slate: #f1f5f9; }
         body { font-family: 'Segoe UI', sans-serif; background: var(--slate); margin: 0; padding-bottom: 80px; }
         .header { background: var(--navy); color: white; padding: 25px; text-align: center; border-bottom: 5px solid var(--gold); }
-        .logo-standalone { height: 75px; margin-bottom: 10px; background: transparent !important; filter: drop-shadow(0 0 0 transparent); }
+        .logo { height: 75px; margin-bottom: 10px; background: transparent !important; }
         .container { max-width: 1200px; margin: auto; padding: 15px; }
         .layer { background: white; border-radius: 16px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
-        .btn-cmd { padding: 10px 15px; border-radius: 8px; color: white; text-decoration: none; font-size: 11px; font-weight: bold; border: none; cursor: pointer; display: inline-block; }
-        .bg-navy { background: var(--navy); } .bg-blue { background: var(--blue); } .bg-red { background: var(--red); } .bg-orange { background: #fd7e14; }
-        table { width: 100%; border-collapse: collapse; font-size: 12px; }
-        th, td { padding: 10px; border-bottom: 1px solid #eee; text-align: left; }
+        .btn-cmd { padding: 12px 18px; border-radius: 8px; color: white; text-decoration: none; font-size: 12px; font-weight: bold; border: none; cursor: pointer; display: inline-block; }
+        .bg-navy { background: var(--navy); } .bg-blue { background: var(--blue); } .bg-red { background: var(--red); }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th, td { padding: 12px; border-bottom: 1px solid #eee; text-align: left; }
         .geo-tag { color: var(--red); font-weight: bold; font-family: monospace; }
-        .guild-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
-        .guild-btn { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; text-align: center; text-decoration: none; color: var(--navy); font-size: 11px; font-weight: bold; }
-        .guild-active { background: var(--navy); color: var(--gold); border-color: var(--gold); }
+        input, select { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #ddd; border-radius: 8px; }
     </style>
 </head>
 <body>
     <div class="header">
-        <img src="{{ url_for('static', filename='logo.png') }}" class="logo-standalone">
-        <div style="font-size: 22px; font-weight: 900; letter-spacing: 1px;">PBE COMMAND CENTER</div>
+        <img src="{{ url_for('static', filename='logo.png') }}" class="logo">
+        <div style="font-size: 24px; font-weight: 900; letter-spacing: 1px;">PBE COMMAND CENTER</div>
     </div>
     <div class="container">{% block content %}{% endblock %}</div>
 </body>
@@ -106,149 +103,121 @@ BASE_HTML = """
 
 @app.route("/")
 def home(): 
-    return redirect(url_for('register_worker'))
+    return redirect(url_for('enrollment'))
 
-@app.route("/pbe-vanguard-hq-2026", methods=['GET', 'POST'])
+@app.route("/enrollment", methods=['GET', 'POST'])
+def enrollment():
+    if request.method == 'POST':
+        otp = request.form.get('otp')
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT id FROM pbe_master_registry WHERE otp_code = %s", (otp,))
+        if cur.fetchone():
+            fname, sname = request.form.get('firstname').upper(), request.form.get('surname').upper()
+            photo = cloudinary.uploader.upload(request.files['photo'], public_id=f"PBE_PP_{sname}_{fname}")
+            # Generate 15-character Mixed Credentials
+            uid = f"{fname[:3]}{''.join(random.choices(string.ascii_uppercase + string.digits, k=12))}"
+            lic = f"{sname[:3]}{''.join(random.choices(string.ascii_uppercase + string.digits, k=12))}"
+            cur.execute("""UPDATE pbe_master_registry SET surname=%s, firstname=%s, dob=%s, pbe_uid=%s, pbe_license=%s,
+                        rank=%s, department=%s, photo_url=%s, status='PENDING', region=%s WHERE otp_code=%s""",
+                        (sname, fname, request.form.get('dob'), uid, lic, request.form.get('rank'), 
+                         request.form.get('department'), photo['secure_url'], request.form.get('region'), otp))
+            conn.commit(); cur.close(); conn.close()
+            return "<h2>REGISTRATION SUBMITTED ✅</h2>"
+    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """
+        <div class="layer" style="max-width:500px; margin:auto;">
+            <h3>PERSONNEL ENROLLMENT</h3>
+            <form method="POST" enctype="multipart/form-data">
+                <input name="otp" placeholder="OTP Code" required>
+                <input name="surname" placeholder="Surname" required>
+                <input name="firstname" placeholder="First Name" required>
+                <input name="dob" placeholder="DOB (DD/MM/YYYY)" required>
+                <select name="department">{% for g in guilds %}<option value="{{g}}">{{g}}</option>{% endfor %}</select>
+                <input name="rank" placeholder="Job Title" required>
+                <select name="region">{% for r in regions %}<option value="{{r}}">{{r}}</option>{% endfor %}</select>
+                <p>Upload Passport Photo:</p><input type="file" name="photo" required>
+                <button class="btn-cmd bg-navy" style="width:100%;">SUBMIT REGISTRATION</button>
+            </form>
+        </div>
+    """), guilds=PBE_GUILDS, regions=GHANA_REGIONS)
+
+@app.route("/admin", methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST':
         if request.form.get('password') == ADMIN_PASSWORD:
             session['logged_in'] = True
-            log_soul_action("HQ_ENTRY", "Executive Session Unlocked")
+            log_soul_action("LOGIN", "Admin Authorized Entry")
             return redirect(url_for('admin_dashboard'))
-    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", '<div class="layer" style="max-width:350px; margin: 80px auto; text-align:center;"><h3>HQ AUTH</h3><form method="POST"><input type="password" name="password" style="width:100%; padding:15px; border-radius:10px; border:1px solid #ddd; margin-bottom:15px;" placeholder="Key" required><button class="btn-cmd bg-navy" style="width:100%;">UNLOCK</button></form></div>'))
+    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", '<div class="layer" style="max-width:350px; margin: 100px auto; text-align:center;"><h3>HQ AUTH</h3><form method="POST"><input type="password" name="password" placeholder="Master Key" required><button class="btn-cmd bg-navy" style="width:100%;">UNLOCK</button></form></div>'))
 
-@app.route("/admin-dashboard")
+@app.route("/admin/dashboard")
 def admin_dashboard():
-    if not session.get('logged_in'): abort(404)
-    
-    sms_live = "OFFLINE"
+    if not session.get('logged_in'): return redirect(url_for('admin_login'))
+    sms_bal = "..."
     try:
         r = requests.get("https://sms.arkesel.com/api/v2/clients/balance", headers={"api-key": ARKESEL_API_KEY}, timeout=5)
-        if r.status_code == 200:
-            sms_live = f"{r.json().get('data', {}).get('available_balance', '0.00')} GHS"
-    except: pass
-
-    conn = get_db(); cur = conn.cursor()
-    dept = request.args.get('dept')
-    if dept: cur.execute("SELECT * FROM pbe_master_registry WHERE department = %s ORDER BY id DESC", (dept,))
-    else: cur.execute("SELECT * FROM pbe_master_registry ORDER BY id DESC")
+        sms_bal = f"{r.json().get('data', {}).get('available_balance', '0.00')} GHS"
+    except: sms_bal = "OFFLINE"
+    conn = get_db(); cur = conn.cursor(); cur.execute("SELECT * FROM pbe_master_registry ORDER BY id DESC")
     workers = cur.fetchall(); cur.close(); conn.close()
-    
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", f"""
         <div class="layer" style="display:flex; justify-content:space-between; align-items:center;">
-            <div><b>LIVE PULSE: {sms_live}</b></div>
+            <div><b>SMS: {sms_bal}</b></div>
             <div>
-                <a href="/admin/audit-logs" class="btn-cmd bg-navy">TERRITORIAL AUDIT</a>
+                <a href="/admin/audit" class="btn-cmd bg-navy">TERRITORIAL AUDIT</a>
                 <a href="/admin/invite" class="btn-cmd bg-blue">INVITE</a>
-                <a href="https://wa.me/{OFFICIAL_WA}" class="btn-cmd bg-blue" style="background:#25D366;">WA OFFICE</a>
-            </div>
-        </div>
-        <div class="layer">
-            <div class="guild-grid">
-                <a href="/admin-dashboard" class="guild-btn">GLOBAL WORLD</a>
-                {{% for g in guilds %}}<a href="/admin-dashboard?dept={{{{g}}}}" class="guild-btn">{{{{g.upper()}}}}</a>{{% endfor %}}
             </div>
         </div>
         <div class="layer">
             <table>
-                <tr><th>ID / LICENSE</th><th>NAME</th><th>RANK</th><th>STATUS</th><th>ACTIONS</th></tr>
+                <tr><th>ID/LIC</th><th>NAME</th><th>STATUS</th><th>ACTIONS</th></tr>
                 {{% for w in workers %}}
                 <tr>
-                    <td><b>{{{{w[6]}}}}</b><br><small>LIC: {{{{w[7]}}}}</small></td>
+                    <td><b>{{{{w[6]}}}}</b><br><small>{{{{w[7]}}}}</small></td>
                     <td>{{{{w[1]}}}}, {{{{w[2]}}}}</td>
-                    <td>{{{{w[10]}}}}</td>
                     <td>{{{{w[14]}}}}</td>
                     <td>
-                        <a href="/admin/print-id/{{{{w[6]}}}}" class="btn-cmd bg-blue">PRINT</a>
-                        <a href="/admin/suspend/{{{{w[0]}}}}" class="btn-cmd bg-orange">SUSP</a>
+                        <a href="/admin/print/{{{{w[6]}}}}" class="btn-cmd bg-blue">PRINT</a>
                         <a href="/admin/delete/{{{{w[0]}}}}" class="btn-cmd bg-red" onclick="return confirm('ERASE?')">DEL</a>
                     </td>
                 </tr>
                 {{% endfor %}}
             </table>
         </div>
-    """), guilds=PBE_GUILDS, workers=workers)
+    """), workers=workers)
 
-@app.route("/admin/invite", methods=['GET', 'POST'])
-def invite():
-    if not session.get('logged_in'): abort(404)
-    if request.method == 'POST':
-        phone, otp = request.form.get('phone'), str(random.randint(111111, 999999))
-        conn = get_db(); cur = conn.cursor(); cur.execute("INSERT INTO pbe_master_registry (phone_no, otp_code) VALUES (%s, %s)", (phone, otp)); conn.commit(); cur.close(); conn.close()
-        # SMS TRIGGER
-        payload = {"sender": ARKESEL_SENDER_ID, "message": f"PBE: Use code {otp} at {request.url_root}enrollment", "recipients": [phone]}
-        requests.post("https://sms.arkesel.com/api/v2/sms/send", json=payload, headers={"api-key": ARKESEL_API_KEY})
-        log_soul_action("SMS_INVITE", f"OTP {otp} sent to {phone}")
-        return redirect(url_for('admin_dashboard'))
-    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", '<div class="layer" style="max-width:400px; margin:auto;"><h3>Invite Worker</h3><form method="POST"><input name="phone" placeholder="233..." style="width:100%; padding:15px; margin-bottom:10px;"><button class="btn-cmd bg-blue" style="width:100%;">SEND PBE_OTP</button></form></div>'))
-
-@app.route("/enrollment", methods=['GET', 'POST'])
-def register_worker():
-    if request.method == 'POST':
-        otp = request.form.get('otp')
-        conn = get_db(); cur = conn.cursor(); cur.execute("SELECT id FROM pbe_master_registry WHERE otp_code = %s", (otp,))
-        if cur.fetchone():
-            fname, sname = request.form.get('firstname').upper().replace(" ", "_"), request.form.get('surname').upper().replace(" ", "_")
-            photo = cloudinary.uploader.upload(request.files['photo'], public_id=f"PBE_PP_{fname}_{sname}")
-            # Generate 15-character Mixed Credentials
-            uid = f"{fname[:3].upper()}{''.join(random.choices(string.ascii_uppercase + string.digits, k=12))}"
-            lic = f"{sname[:3].upper()}{''.join(random.choices(string.ascii_uppercase + string.digits, k=12))}"
-            cur.execute("""UPDATE pbe_master_registry SET surname=%s, firstname=%s, dob=%s, pbe_uid=%s, pbe_license=%s,
-                        issuance_date=%s, expiry_date=%s, rank=%s, department=%s, photo_url=%s, 
-                        status='PENDING', region=%s, station=%s WHERE otp_code=%s""",
-                        (request.form.get('surname').upper(), fname, request.form.get('dob'), uid, lic,
-                        datetime.date.today(), datetime.date.today() + datetime.timedelta(days=730),
-                        request.form.get('rank'), request.form.get('department'), photo['secure_url'], 
-                        request.form.get('region'), request.form.get('station'), otp))
-            conn.commit(); cur.close(); conn.close()
-            return "<div style='text-align:center; padding:100px;'><h1>REGISTRATION RECEIVED ✅</h1></div>"
-    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """
-        <div class="layer" style="max-width:500px; margin: auto;">
-            <h3>PERSONNEL ENROLLMENT</h3>
-            <form method="POST" enctype="multipart/form-data">
-                <input name="otp" placeholder="OTP" style="width:100%; padding:12px; margin:5px 0;" required>
-                <input name="surname" placeholder="Surname" style="width:100%; padding:12px; margin:5px 0;" required>
-                <input name="firstname" placeholder="First Name" style="width:100%; padding:12px; margin:5px 0;" required>
-                <select name="department" style="width:100%; padding:12px; margin:5px 0;">
-                    {% for g in guilds %}<option value="{{g}}">{{g}}</option>{% endfor %}
-                </select>
-                <input name="rank" placeholder="Job Title" style="width:100%; padding:12px; margin:5px 0;" required>
-                <select name="region" style="width:100%; padding:12px; margin:5px 0;">
-                    {% for r in regions %}<option value="{{r}}">{{r}}</option>{% endfor %}
-                </select>
-                <input type="file" name="photo" required>
-                <button class="btn-cmd bg-navy" style="width:100%; padding:15px; margin-top:10px;">SUBMIT</button>
-            </form>
-        </div>
-    """), guilds=PBE_GUILDS, regions=GHANA_REGIONS)
-
-@app.route("/admin/audit-logs")
-def audit_logs():
-    if not session.get('logged_in'): abort(404)
-    q = request.args.get('q', '')
-    conn = get_db(); cur = conn.cursor()
-    if q: cur.execute("SELECT * FROM pbe_soul_audit WHERE geo_location ILIKE %s OR action ILIKE %s ORDER BY timestamp DESC", (f'%{q}%', f'%{q}%'))
-    else: cur.execute("SELECT * FROM pbe_soul_audit ORDER BY timestamp DESC LIMIT 150")
+@app.route("/admin/audit")
+def admin_audit():
+    if not session.get('logged_in'): return redirect(url_for('admin_login'))
+    conn = get_db(); cur = conn.cursor(); cur.execute("SELECT * FROM pbe_soul_audit ORDER BY timestamp DESC LIMIT 100")
     logs = cur.fetchall(); cur.close(); conn.close()
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """
         <div class="layer">
-            <form method="GET" style="display:flex; gap:10px; margin-bottom:20px;">
-                <input name="q" placeholder="Track Location or IP..." style="flex:1; padding:12px; border:1px solid #ddd;">
-                <button class="btn-cmd bg-navy">TRACK</button>
-            </form>
+            <h3>Territorial Audit</h3>
             <table>
-                <tr><th>Time</th><th>Action</th><th>📍 Territorial Location</th><th>Device / IP</th><th>Cmd</th></tr>
+                <tr><th>Time</th><th>Action</th><th>📍 Territorial Location</th><th>Cmd</th></tr>
                 {% for l in logs %}
-                <tr><td>{{l[1].strftime('%H:%M:%S')}}</td><td><b>{{l[2]}}</b></td><td style="color:red; font-weight:bold;">{{l[6]}}</td><td><small>{{l[5]}}</small></td><td><a href="/admin/audit/delete/{{l[0]}}" style="color:red; font-weight:bold;">X</a></td></tr>
+                <tr><td>{{l[1].strftime('%H:%M:%S')}}</td><td>{{l[2]}}</td><td class="geo-tag">{{l[6]}}</td><td><a href="/admin/audit/del/{{l[0]}}" style="color:red;">X</a></td></tr>
                 {% endfor %}
             </table>
-            <br><a href="/admin-dashboard" class="btn-cmd bg-navy">Return</a>
+            <br><a href="/admin/dashboard" class="btn-cmd bg-navy">Back</a>
         </div>
     """), logs=logs)
 
-@app.route("/admin/print-id/<pbe_uid>")
+@app.route("/admin/invite", methods=['GET', 'POST'])
+def invite():
+    if not session.get('logged_in'): return redirect(url_for('admin_login'))
+    if request.method == 'POST':
+        phone, otp = request.form.get('phone'), str(random.randint(111111, 999999))
+        conn = get_db(); cur = conn.cursor(); cur.execute("INSERT INTO pbe_master_registry (phone_no, otp_code) VALUES (%s, %s)", (phone, otp)); conn.commit(); cur.close(); conn.close()
+        # SENDER PBE_OTP LOCKED
+        requests.post("https://sms.arkesel.com/api/v2/sms/send", json={"sender": "PBE_OTP", "message": f"PBE: Use code {otp} at {request.url_root}enrollment", "recipients": [phone]}, headers={"api-key": ARKESEL_API_KEY})
+        log_soul_action("INVITE", f"OTP {otp} sent to {phone}")
+        return redirect(url_for('admin_dashboard'))
+    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", '<div class="layer" style="max-width:400px; margin:auto;"><h3>Invite</h3><form method="POST"><input name="phone" placeholder="233..." required><button class="btn-cmd bg-blue" style="width:100%;">SEND OTP</button></form></div>'))
+
+@app.route("/admin/print/<pbe_uid>")
 def print_id(pbe_uid):
-    if not session.get('logged_in'): abort(404)
+    if not session.get('logged_in'): return redirect(url_for('admin_login'))
     conn = get_db(); cur = conn.cursor(); cur.execute("SELECT * FROM pbe_master_registry WHERE pbe_uid = %s", (pbe_uid,))
     w = cur.fetchone(); cur.close(); conn.close()
     
@@ -256,7 +225,7 @@ def print_id(pbe_uid):
     tpl = os.path.join(app.root_path, 'static', 'Power Bridge Engineering ID Identity Template.png')
     if os.path.exists(tpl): c.drawImage(tpl, 0, 0, width=3.375*inch, height=2.125*inch)
     
-    if w[13]: # Photos: Main and Ghost Security Watermark
+    if w[13]: # Photo Layering (Main & Ghost Security Watermark)
         c.drawImage(w[13], 0.18*inch, 0.55*inch, width=1.02*inch, height=1.22*inch, mask='auto')
         c.saveState(); c.setFillAlpha(0.15); c.drawImage(w[13], 2.3*inch, 0.55*inch, width=0.7*inch, height=0.9*inch, mask='auto'); c.restoreState()
 
@@ -274,15 +243,15 @@ def print_id(pbe_uid):
 
 @app.route("/admin/delete/<int:id>")
 def delete_worker(id):
-    if not session.get('logged_in'): abort(404)
+    if not session.get('logged_in'): return redirect(url_for('admin_login'))
     conn = get_db(); cur = conn.cursor(); cur.execute("DELETE FROM pbe_master_registry WHERE id=%s", (id,)); conn.commit(); cur.close(); conn.close()
     return redirect(url_for('admin_dashboard'))
 
-@app.route("/admin/suspend/<int:id>")
-def suspend_worker(id):
-    if not session.get('logged_in'): abort(404)
-    conn = get_db(); cur = conn.cursor(); cur.execute("UPDATE pbe_master_registry SET status='SUSPENDED' WHERE id=%s", (id,)); conn.commit(); cur.close(); conn.close()
-    return redirect(url_for('admin_dashboard'))
+@app.route("/admin/audit/del/<int:id>")
+def delete_audit(id):
+    if not session.get('logged_in'): return redirect(url_for('admin_login'))
+    conn = get_db(); cur = conn.cursor(); cur.execute("DELETE FROM pbe_soul_audit WHERE id=%s", (id,)); conn.commit(); cur.close(); conn.close()
+    return redirect(url_for('admin_audit'))
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
