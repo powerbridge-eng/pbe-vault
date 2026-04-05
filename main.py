@@ -7,8 +7,7 @@ from reportlab.lib.units import inch
 from reportlab.lib import colors
 from io import BytesIO, StringIO
 
-# --- 1. CORE INTEGRATION (From Your Environment Variables) ---
-#
+# --- 1. CORE INTEGRATION ---
 DATABASE_URL = os.environ.get("DATABASE_URL")
 ARKESEL_API_KEY = os.environ.get("ARKESEL_API_KEY")
 ARKESEL_SENDER_ID = "PBE_OTP" 
@@ -17,7 +16,7 @@ OFFICIAL_WA = "233245630637"
 OFFICIAL_MAIL = "arkuhgilbert@gmail.com"
 
 app = Flask(__name__)
-app.secret_key = "PBE_STRATEGIC_ULTIMATUM_2026_FINAL"
+app.secret_key = "PBE_VANGUARD_ABSOLUTE_2026_FINAL"
 
 cloudinary.config(
     cloud_name = os.environ.get("CLOUDINARY_NAME"),
@@ -32,7 +31,7 @@ def get_db():
 PBE_GUILDS = ["Electrical Engineering", "Solar & Energy", "Plumbing & Hydraulics", "Masonry & Construction", "Mechanical & Auto", "PBE TV", "CCTV & Security", "ICT & Software", "HVAC & Cooling", "General Technical", "ETC"]
 GHANA_REGIONS = ["Greater Accra", "Ashanti", "Western", "Central", "Eastern", "Volta", "Northern", "Upper East", "Upper West", "Bono", "Bono East", "Ahafo", "Savannah", "North East", "Oti", "Western North"]
 
-# --- 3. DATABASE & TERRITORIAL SOUL TRACKER ---
+# --- 3. DATABASE & TERRITORIAL GPS TRACKER ---
 def init_db():
     conn = get_db(); cur = conn.cursor()
     cur.execute("""
@@ -55,12 +54,11 @@ def log_soul_action(action, details):
     ip = request.remote_addr
     location = "HQ_SECURE_ZONE"
     try:
-        # TERRITORIAL GPS TRACKING (PINPOINT ACCURACY)
         geo = requests.get(f"http://ip-api.com/json/{ip}?fields=status,city,regionName,lat,lon", timeout=3).json()
         if geo['status'] == 'success':
             location = f"{geo['city']}, {geo['regionName']} ({geo['lat']}, {geo['lon']})"
     except: location = "LOC_MASKED"
-    device = f"{request.user_agent.platform} | {request.user_agent.browser} | {request.user_agent.string[:30]}"
+    device = f"{request.user_agent.platform} | {request.user_agent.browser} | {request.remote_addr}"
     conn = get_db(); cur = conn.cursor()
     cur.execute("INSERT INTO pbe_soul_audit (action, details, ip_address, device_info, geo_location) VALUES (%s, %s, %s, %s, %s)",
                 (action, details, ip, device, location))
@@ -69,8 +67,7 @@ def log_soul_action(action, details):
 with app.app_context():
     init_db()
 
-# --- 4. CLOAKED INTERFACE (NO HQ BUTTON FOR WORKERS) ---
-[span_1](start_span)#[span_1](end_span)
+# --- 4. CLOAKED INTERFACE (NO HQ BUTTON) ---
 BASE_HTML = """
 <!DOCTYPE html>
 <html>
@@ -88,7 +85,6 @@ BASE_HTML = """
         .bg-navy { background: var(--navy); } .bg-blue { background: var(--blue); } .bg-red { background: var(--red); } .bg-orange { background: #fd7e14; }
         table { width: 100%; border-collapse: collapse; font-size: 12px; }
         th, td { padding: 10px; border-bottom: 1px solid #eee; text-align: left; }
-        .geo-tag { color: var(--red); font-weight: bold; font-family: monospace; }
         .guild-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
         .guild-btn { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; text-align: center; text-decoration: none; color: var(--navy); font-size: 11px; font-weight: bold; }
         .guild-active { background: var(--navy); color: var(--gold); border-color: var(--gold); }
@@ -108,20 +104,27 @@ BASE_HTML = """
 
 @app.route("/")
 def home(): 
-    return redirect(url_for('register_worker')) #
+    return redirect(url_for('register_worker'))
+
+@app.route("/worker-enrollment", methods=['GET', 'POST'])
+def register_worker():
+    if request.method == 'POST':
+        # Enrollment logic with PBE_PP_NAME_SURNAME naming...
+        pass
+    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", '<h3>Personnel Enrollment</h3>'))
 
 @app.route("/pbe-vanguard-hq-2026", methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST':
         if request.form.get('password') == ADMIN_PASSWORD:
             session['logged_in'] = True
-            log_soul_action("HQ_ENTRY", "Master Access Authenticated")
+            log_soul_action("HQ_ENTRY", "Executive Session Unlocked")
             return redirect(url_for('admin_dashboard'))
-    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", '<div class="layer" style="max-width:350px; margin: 80px auto; text-align:center;"><h3>SYSTEM LOCK</h3><form method="POST"><input type="password" name="password" style="width:100%; padding:15px; border-radius:10px; border:1px solid #ddd; margin-bottom:15px;" placeholder="Master Key" required><button class="btn-cmd bg-navy" style="width:100%;">AUTHENTICATE</button></form></div>'))
+    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", '<div class="layer" style="max-width:350px; margin: 80px auto; text-align:center;"><h3>HQ AUTH</h3><form method="POST"><input type="password" name="password" style="width:100%; padding:15px; border-radius:10px; border:1px solid #ddd; margin-bottom:15px;" placeholder="Key" required><button class="btn-cmd bg-navy" style="width:100%;">UNLOCK</button></form></div>'))
 
 @app.route("/admin-dashboard")
 def admin_dashboard():
-    if not session.get('logged_in'): abort(404) # CloakHQ
+    if not session.get('logged_in'): abort(404)
     
     sms_live = "OFFLINE"
     try:
@@ -141,8 +144,7 @@ def admin_dashboard():
             <div><b>LIVE PULSE: {sms_live}</b></div>
             <div>
                 <a href="/admin/audit-logs" class="btn-cmd bg-navy">TERRITORIAL AUDIT</a>
-                <a href="/admin/invite" class="btn-cmd bg-blue">INVITE WORKER</a>
-                <a href="https://wa.me/{OFFICIAL_WA}" class="btn-cmd bg-blue" style="background:#25D366;">WA OFFICE</a>
+                <a href="/admin/invite" class="btn-cmd bg-blue">INVITE</a>
             </div>
         </div>
         <div class="layer">
@@ -153,33 +155,47 @@ def admin_dashboard():
         </div>
         <div class="layer">
             <table>
-                <tr><th>ID / LICENSE</th><th>NAME</th><th>RANK</th><th>STATUS</th><th>ACTIONS</th></tr>
+                <tr><th>ID / LIC</th><th>NAME</th><th>RANK</th><th>ACTIONS</th></tr>
                 {{% for w in workers %}}
                 <tr>
-                    <td>ID: <b>{{{{w[6]}}}}</b><br>LIC: <small>{{{{w[7]}}}}</small></td>
+                    <td><b>{{{{w[6]}}}}</b><br><small>LIC: {{{{w[7]}}}}</small></td>
                     <td>{{{{w[1]}}}}, {{{{w[2]}}}}</td>
                     <td>{{{{w[10]}}}}</td>
-                    <td>{{{{w[14]}}}}</td>
                     <td>
                         <a href="/admin/print-id/{{{{w[6]}}}}" class="btn-cmd bg-blue">PRINT</a>
-                        <a href="/admin/suspend/{{{{w[0]}}}}" class="btn-cmd bg-orange">SUSP</a>
-                        <a href="/admin/delete/{{{{w[0]}}}}" class="btn-cmd bg-red" onclick="return confirm('ERASE DATA?')">DEL</a>
+                        <a href="/admin/delete/{{{{w[0]}}}}" class="btn-cmd bg-red" onclick="return confirm('ERASE?')">DEL</a>
                     </td>
                 </tr>
                 {{% endfor %}}
             </table>
         </div>
-    """), guilds=PBE_GUILDS, workers=workers, current_dept=dept)
+    """), guilds=PBE_GUILDS, workers=workers)
 
-@app.route("/worker-enrollment", methods=['GET', 'POST'])
-def register_worker():
-    if request.method == 'POST':
-        # Enrollment logic goes here (OTP check, Cloudinary upload with naming)
-        pass
-    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", '<h3>Personnel Enrollment</h3>'))
+@app.route("/admin/audit-logs")
+def audit_logs():
+    if not session.get('logged_in'): abort(404)
+    q = request.args.get('q', '')
+    conn = get_db(); cur = conn.cursor()
+    if q: cur.execute("SELECT * FROM pbe_soul_audit WHERE geo_location ILIKE %s OR action ILIKE %s ORDER BY timestamp DESC", (f'%{q}%', f'%{q}%'))
+    else: cur.execute("SELECT * FROM pbe_soul_audit ORDER BY timestamp DESC LIMIT 150")
+    logs = cur.fetchall(); cur.close(); conn.close()
+    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """
+        <div class="layer">
+            <form method="GET" style="display:flex; gap:10px; margin-bottom:20px;">
+                <input name="q" placeholder="Track Location or IP..." style="flex:1; padding:12px; border-radius:8px; border:1px solid #ddd;">
+                <button class="btn-cmd bg-navy">TRACK</button>
+            </form>
+            <table>
+                <tr><th>Time</th><th>Action</th><th>📍 Territorial Location</th><th>Device / IP</th><th>Cmd</th></tr>
+                {% for l in logs %}
+                <tr><td>{{l[1].strftime('%H:%M:%S')}}</td><td><b>{{l[2]}}</b></td><td style="color:red; font-weight:bold;">{{l[6]}}</td><td><small>{{l[5]}}</small></td><td><a href="/admin/audit/delete/{{l[0]}}" style="color:red; font-weight:bold;">X</a></td></tr>
+                {% endfor %}
+            </table>
+            <br><a href="/admin-dashboard" class="btn-cmd bg-navy">Back</a>
+        </div>
+    """), logs=logs)
 
-# --- 6. PRINT ENGINE (CLONE MAPPING) ---
-#
+# --- 6. PRINT ENGINE (PDF CLONE MAPPING) ---
 @app.route("/admin/print-id/<pbe_uid>")
 def print_id(pbe_uid):
     if not session.get('logged_in'): abort(404)
@@ -190,25 +206,21 @@ def print_id(pbe_uid):
     tpl = os.path.join(app.root_path, 'static', 'Power Bridge Engineering ID Identity Template.png')
     if os.path.exists(tpl): c.drawImage(tpl, 0, 0, width=3.375*inch, height=2.125*inch)
     
-    if w[13]: # Photo Layering (Main & Ghost Security Watermark)
+    if w[13]: 
         c.drawImage(w[13], 0.18*inch, 0.55*inch, width=1.02*inch, height=1.22*inch, mask='auto')
         c.saveState(); c.setFillAlpha(0.15); c.drawImage(w[13], 2.3*inch, 0.55*inch, width=0.7*inch, height=0.9*inch, mask='auto'); c.restoreState()
 
     c.setFont("Helvetica-Bold", 7.5); c.setFillColor(colors.black)
     c.drawString(1.35*inch, 1.55*inch, f"{w[1]}") # Surname
     c.drawString(1.35*inch, 1.40*inch, f"{w[2]}") # Firstname
-    c.drawString(1.35*inch, 1.25*inch, f"{w[6]}") # ID (15 char)
-    c.drawString(1.35*inch, 1.10*inch, f"{w[7]}") # License (15 char)
+    c.drawString(1.35*inch, 1.25*inch, f"{w[6]}") # ID
+    c.drawString(1.35*inch, 1.10*inch, f"{w[7]}") # License
     
-    # QR Security
     qr_code = qr.QrCodeWidget(f"{request.url_root}verify/{w[6]}")
     bounds = qr_code.getBounds(); d = Drawing(40, 40, transform=[40./(bounds[2]-bounds[0]),0,0,40./(bounds[3]-bounds[1]),0,0])
     d.add(qr_code); d.drawOn(c, 2.8*inch, 0.15*inch)
     c.showPage(); c.save(); buffer.seek(0)
-    log_soul_action("PRINT_ID", f"ID Document issued to {w[1]}")
     return send_file(buffer, mimetype='application/pdf')
-
-# [Rest of routes for Audit Search, Invite SMS, and Deletion fully maintained]
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
