@@ -7,15 +7,15 @@ from reportlab.lib.units import inch
 from reportlab.lib import colors
 from io import BytesIO, StringIO
 
-# --- 1. CORE CONFIGURATION (Environment Sync) ---
+# --- 1. CORE INTEGRATION (Environment Variables) ---
 DATABASE_URL = os.environ.get("DATABASE_URL")
 ARKESEL_API_KEY = os.environ.get("ARKESEL_API_KEY")
-ARKESEL_SENDER_ID = "PBE_OTP" # Locked in Block Letters
+ARKESEL_SENDER_ID = "PBE_OTP" 
 ADMIN_PASSWORD = "PBE-Global-2026"
 OFFICIAL_WA = "233245630637"
 
 app = Flask(__name__)
-app.secret_key = "PBE_ABSOLUTE_ULTIMATUM_2026_FINAL"
+app.secret_key = "PBE_ABSOLUTE_FINAL_COMMAND_2026"
 
 cloudinary.config(
     cloud_name = os.environ.get("CLOUDINARY_NAME"),
@@ -47,6 +47,11 @@ def init_db():
             action TEXT, details TEXT, ip_address TEXT, device_info TEXT, geo_location TEXT
         );
     """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS pbe_blacklist (
+            id SERIAL PRIMARY KEY, ip_address TEXT UNIQUE, blocked_until TIMESTAMP
+        );
+    """)
     conn.commit(); cur.close(); conn.close()
 
 def log_soul_action(action, details):
@@ -67,7 +72,20 @@ def log_soul_action(action, details):
 with app.app_context():
     init_db()
 
-# --- 4. CLOAKED INTERFACE (NO HQ BUTTON) ---
+# --- 4. GHOST PROTOCOL SECURITY ---
+def is_blocked(ip):
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("SELECT blocked_until FROM pbe_blacklist WHERE ip_address = %s", (ip,))
+    res = cur.fetchone(); cur.close(); conn.close()
+    return True if res and res[0] > datetime.datetime.now() else False
+
+def engage_lockout(ip):
+    until = datetime.datetime.now() + datetime.timedelta(hours=72)
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("INSERT INTO pbe_blacklist (ip_address, blocked_until) VALUES (%s, %s) ON CONFLICT (ip_address) DO UPDATE SET blocked_until = %s", (ip, until, until))
+    conn.commit(); cur.close(); conn.close()
+
+# --- 5. INTERFACE DESIGN ---
 BASE_HTML = """
 <!DOCTYPE html>
 <html>
@@ -99,7 +117,7 @@ BASE_HTML = """
 </html>
 """
 
-# --- 5. ROUTES: COMMAND & CONTROL ---
+# --- 6. ROUTES: CORE COMMAND ---
 
 @app.route("/")
 def home(): 
@@ -114,7 +132,7 @@ def enrollment():
         if cur.fetchone():
             fname, sname = request.form.get('firstname').upper(), request.form.get('surname').upper()
             photo = cloudinary.uploader.upload(request.files['photo'], public_id=f"PBE_PP_{sname}_{fname}")
-            # Generate 15-character Mixed Credentials
+            # 15-CHAR NAME-MIX CREDENTIALS
             uid = f"{fname[:3]}{''.join(random.choices(string.ascii_uppercase + string.digits, k=12))}"
             lic = f"{sname[:3]}{''.join(random.choices(string.ascii_uppercase + string.digits, k=12))}"
             cur.execute("""UPDATE pbe_master_registry SET surname=%s, firstname=%s, dob=%s, pbe_uid=%s, pbe_license=%s,
@@ -122,7 +140,7 @@ def enrollment():
                         (sname, fname, request.form.get('dob'), uid, lic, request.form.get('rank'), 
                          request.form.get('department'), photo['secure_url'], request.form.get('region'), otp))
             conn.commit(); cur.close(); conn.close()
-            return "<h2>REGISTRATION SUBMITTED ✅</h2>"
+            return "<h2>REGISTRATION SUBMITTED ✅ awaiting Admin approval.</h2>"
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """
         <div class="layer" style="max-width:500px; margin:auto;">
             <h3>PERSONNEL ENROLLMENT</h3>
@@ -134,29 +152,33 @@ def enrollment():
                 <select name="department">{% for g in guilds %}<option value="{{g}}">{{g}}</option>{% endfor %}</select>
                 <input name="rank" placeholder="Job Title" required>
                 <select name="region">{% for r in regions %}<option value="{{r}}">{{r}}</option>{% endfor %}</select>
-                <p>Upload Passport Photo:</p><input type="file" name="photo" required>
-                <button class="btn-cmd bg-navy" style="width:100%;">SUBMIT REGISTRATION</button>
+                <input type="file" name="photo" required>
+                <button class="btn-cmd bg-navy" style="width:100%;">SUBMIT</button>
             </form>
         </div>
     """), guilds=PBE_GUILDS, regions=GHANA_REGIONS)
 
 @app.route("/admin", methods=['GET', 'POST'])
 def admin_login():
+    if is_blocked(request.remote_addr): abort(404)
     if request.method == 'POST':
         if request.form.get('password') == ADMIN_PASSWORD:
             session['logged_in'] = True
-            log_soul_action("LOGIN", "Admin Authorized Entry")
+            log_soul_action("LOGIN", "Admin Entered Dashboard")
             return redirect(url_for('admin_dashboard'))
-    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", '<div class="layer" style="max-width:350px; margin: 100px auto; text-align:center;"><h3>HQ AUTH</h3><form method="POST"><input type="password" name="password" placeholder="Master Key" required><button class="btn-cmd bg-navy" style="width:100%;">UNLOCK</button></form></div>'))
+        else:
+            engage_lockout(request.remote_addr)
+            return "<h2>SYSTEM LOCKED ❌ Incorrect Key.</h2>"
+    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", '<div class="layer" style="max-width:350px; margin: 100px auto; text-align:center;"><h3>HQ AUTH</h3><form method="POST"><input type="password" name="password" placeholder="Key" required><button class="btn-cmd bg-navy" style="width:100%;">UNLOCK</button></form></div>'))
 
 @app.route("/admin/dashboard")
 def admin_dashboard():
     if not session.get('logged_in'): return redirect(url_for('admin_login'))
-    sms_bal = "..."
+    sms_bal = "OFFLINE"
     try:
         r = requests.get("https://sms.arkesel.com/api/v2/clients/balance", headers={"api-key": ARKESEL_API_KEY}, timeout=5)
         sms_bal = f"{r.json().get('data', {}).get('available_balance', '0.00')} GHS"
-    except: sms_bal = "OFFLINE"
+    except: pass
     conn = get_db(); cur = conn.cursor(); cur.execute("SELECT * FROM pbe_master_registry ORDER BY id DESC")
     workers = cur.fetchall(); cur.close(); conn.close()
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", f"""
@@ -169,15 +191,15 @@ def admin_dashboard():
         </div>
         <div class="layer">
             <table>
-                <tr><th>ID/LIC</th><th>NAME</th><th>STATUS</th><th>ACTIONS</th></tr>
+                <tr><th>ID/LIC</th><th>NAME</th><th>RANK</th><th>ACTIONS</th></tr>
                 {{% for w in workers %}}
                 <tr>
                     <td><b>{{{{w[6]}}}}</b><br><small>{{{{w[7]}}}}</small></td>
                     <td>{{{{w[1]}}}}, {{{{w[2]}}}}</td>
-                    <td>{{{{w[14]}}}}</td>
+                    <td>{{{{w[10]}}}}</td>
                     <td>
-                        <a href="/admin/print/{{{{w[6]}}}}" class="btn-cmd bg-blue">PRINT</a>
-                        <a href="/admin/delete/{{{{w[0]}}}}" class="btn-cmd bg-red" onclick="return confirm('ERASE?')">DEL</a>
+                        <a href="/admin/print/{{{{w[6]}}}}" class="btn-cmd bg-blue">Print</a>
+                        <a href="/admin/delete/{{{{w[0]}}}}" class="btn-cmd bg-red" onclick="return confirm('Erase?')">Del</a>
                     </td>
                 </tr>
                 {{% endfor %}}
@@ -194,12 +216,12 @@ def admin_audit():
         <div class="layer">
             <h3>Territorial Audit</h3>
             <table>
-                <tr><th>Time</th><th>Action</th><th>📍 Territorial Location</th><th>Cmd</th></tr>
+                <tr><th>Time</th><th>Action</th><th>📍 Location</th><th>Cmd</th></tr>
                 {% for l in logs %}
                 <tr><td>{{l[1].strftime('%H:%M:%S')}}</td><td>{{l[2]}}</td><td class="geo-tag">{{l[6]}}</td><td><a href="/admin/audit/del/{{l[0]}}" style="color:red;">X</a></td></tr>
                 {% endfor %}
             </table>
-            <br><a href="/admin/dashboard" class="btn-cmd bg-navy">Back</a>
+            <br><a href="/admin/dashboard" class="btn-cmd bg-navy">Return</a>
         </div>
     """), logs=logs)
 
@@ -209,11 +231,10 @@ def invite():
     if request.method == 'POST':
         phone, otp = request.form.get('phone'), str(random.randint(111111, 999999))
         conn = get_db(); cur = conn.cursor(); cur.execute("INSERT INTO pbe_master_registry (phone_no, otp_code) VALUES (%s, %s)", (phone, otp)); conn.commit(); cur.close(); conn.close()
-        # SENDER PBE_OTP LOCKED
+        # SENDER PBE_OTP
         requests.post("https://sms.arkesel.com/api/v2/sms/send", json={"sender": "PBE_OTP", "message": f"PBE: Use code {otp} at {request.url_root}enrollment", "recipients": [phone]}, headers={"api-key": ARKESEL_API_KEY})
-        log_soul_action("INVITE", f"OTP {otp} sent to {phone}")
         return redirect(url_for('admin_dashboard'))
-    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", '<div class="layer" style="max-width:400px; margin:auto;"><h3>Invite</h3><form method="POST"><input name="phone" placeholder="233..." required><button class="btn-cmd bg-blue" style="width:100%;">SEND OTP</button></form></div>'))
+    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", '<div class="layer" style="max-width:400px; margin:auto;"><h3>Invite</h3><form method="POST"><input name="phone" placeholder="233..."><button class="btn-cmd bg-blue" style="width:100%;">SEND OTP</button></form></div>'))
 
 @app.route("/admin/print/<pbe_uid>")
 def print_id(pbe_uid):
@@ -225,7 +246,7 @@ def print_id(pbe_uid):
     tpl = os.path.join(app.root_path, 'static', 'Power Bridge Engineering ID Identity Template.png')
     if os.path.exists(tpl): c.drawImage(tpl, 0, 0, width=3.375*inch, height=2.125*inch)
     
-    if w[13]: # Photo Layering (Main & Ghost Security Watermark)
+    if w[13]: # Photo Layering (Main & Ghost Watermark)
         c.drawImage(w[13], 0.18*inch, 0.55*inch, width=1.02*inch, height=1.22*inch, mask='auto')
         c.saveState(); c.setFillAlpha(0.15); c.drawImage(w[13], 2.3*inch, 0.55*inch, width=0.7*inch, height=0.9*inch, mask='auto'); c.restoreState()
 
