@@ -15,7 +15,7 @@ ADMIN_PASSWORD = "PBE-Global-2026"
 SUPERVISOR_PASSWORD = "PBE_Secure_2026"
 
 app = Flask(__name__)
-app.secret_key = "PBE_SUPREME_ULTIMATE_2026_V2"
+app.secret_key = "PBE_SUPREME_ULTIMATE_2026_FINAL"
 
 cloudinary.config(
     cloud_name = os.environ.get("CLOUDINARY_NAME"),
@@ -30,13 +30,14 @@ PBE_GUILDS = ["ELECTRICAL ENGINEERING", "SOLAR & ENERGY", "PLUMBING & HYDRAULICS
 
 GH_REGIONS = ["Greater Accra", "Ashanti", "Western", "Central", "Eastern", "Volta", "Northern", "Upper East", "Upper West", "Bono", "Bono East", "Ahafo", "Savannah", "North East", "Oti", "Western North"]
 
-# --- 2. SELF-HEALING & RESET PROTOCOL ---
-def init_and_heal_db(reset=False):
+# --- 2. THE SELF-HEALING DOCTOR (CRITICAL FIX) ---
+def perform_self_heal(reset_all=False):
     conn = get_db(); cur = conn.cursor()
-    if reset:
+    if reset_all:
         cur.execute("DROP TABLE IF EXISTS pbe_master_registry CASCADE;")
         cur.execute("DROP TABLE IF EXISTS pbe_soul_audit CASCADE;")
     
+    # Layer 1: Registry Healing
     cur.execute("""
         CREATE TABLE IF NOT EXISTS pbe_master_registry (
             id SERIAL PRIMARY KEY, surname TEXT, firstname TEXT, dob TEXT, gender TEXT, 
@@ -46,17 +47,17 @@ def init_and_heal_db(reset=False):
             region TEXT, issuance_date DATE, expiry_date DATE
         );
     """)
+    # Layer 2: Audit Healing (Fixes "actor" column crash)
     cur.execute("CREATE TABLE IF NOT EXISTS pbe_soul_audit (id SERIAL PRIMARY KEY);")
-    # Healing missing columns
     cols = {"timestamp": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "action": "TEXT", "actor": "TEXT", "details": "TEXT", "ip": "TEXT", "device": "TEXT"}
     for col, defn in cols.items():
         cur.execute(f"SELECT column_name FROM information_schema.columns WHERE table_name='pbe_soul_audit' AND column_name='{col}';")
         if not cur.fetchone(): cur.execute(f"ALTER TABLE pbe_soul_audit ADD COLUMN {col} {defn};")
     conn.commit(); cur.close(); conn.close()
 
-# CRITICAL: SET TO TRUE ONCE TO DELETE AND START NEW, THEN SET TO FALSE
+# ON DEPLOY: Run healing. Set reset_all=True ONLY if you want to wipe the DB.
 with app.app_context():
-    init_and_heal_db(reset=True) 
+    perform_self_heal(reset_all=False) 
 
 def log_action(action, details, actor="SYSTEM"):
     conn = get_db(); cur = conn.cursor()
@@ -64,23 +65,23 @@ def log_action(action, details, actor="SYSTEM"):
                 (action, actor, details, request.remote_addr, f"{request.user_agent.platform}"))
     conn.commit(); cur.close(); conn.close()
 
-# --- 3. PBE 15-CHAR HYBRID LOGIC ---
+# --- 3. ID LOGIC (PBE 15-CHAR) ---
 def generate_pbe_id(firstname):
     now = datetime.datetime.now()
-    prefix = f"PBE{now.strftime('%y%m')}" # PBE + YY + MM
-    name_part = re.sub(r'[^A-Z]', '', firstname.upper())[:3] # First 3 letters
+    prefix = f"PBE{now.strftime('%y%m')}"
+    name_part = re.sub(r'[^A-Z]', '', firstname.upper())[:3]
     needed = 15 - len(prefix) - len(name_part)
     nums = ''.join(random.choices(string.digits, k=needed))
     return f"{prefix}{name_part}{nums}"
 
 def generate_pbe_lic(surname):
-    prefix = "PBELIC" # 6 chars
-    name_part = re.sub(r'[^A-Z]', '', surname.upper())[:3] # 3 letters
+    name_part = re.sub(r'[^A-Z]', '', surname.upper())[:3]
+    prefix = "PBELIC"
     needed = 15 - len(prefix) - len(name_part)
     nums = ''.join(random.choices(string.digits, k=needed))
     return f"{prefix}{name_part}{nums}"
 
-# --- 4. UI DESIGN ---
+# --- 4. EXECUTIVE UI DESIGN ---
 BASE_HTML = """
 <!DOCTYPE html>
 <html>
@@ -89,28 +90,28 @@ BASE_HTML = """
     <title>PBE Supreme Command</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
-        :root { --pbe-grey: #414042; --pbe-gold: #f2a900; --bg: #e9eaec; }
+        :root { --navy: #343a40; --gold: #ffc107; --bg: #f4f6f9; }
         body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); margin: 0; padding-bottom: 50px; }
-        .header { background: var(--pbe-grey); color: white; padding: 30px; text-align: center; border-bottom: 5px solid var(--pbe-gold); }
-        .logo-box { width: 75px; height: 75px; background: white; border-radius: 50%; margin: 0 auto 10px; border: 2px solid var(--pbe-gold); display: flex; align-items: center; justify-content: center; overflow: hidden; }
-        .logo-box img { max-width: 100%; height: auto; }
-        .container { max-width: 1350px; margin: auto; padding: 20px; }
-        .layer-box { background: white; border-radius: 12px; padding: 20px; margin-bottom: 25px; border: 1px solid #d1d1d1; }
-        .layer-title { font-size: 11px; font-weight: 800; color: #555; text-transform: uppercase; margin-bottom: 15px; border-left: 5px solid var(--pbe-grey); padding-left: 10px; }
+        .header { background: var(--navy); color: white; padding: 25px; text-align: center; border-bottom: 5px solid var(--gold); }
+        .logo-circle { width: 70px; height: 70px; background: white; border-radius: 50%; margin: 0 auto 10px; border: 2px solid var(--gold); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+        .logo-circle img { max-width: 100%; height: auto; }
+        .container { max-width: 1300px; margin: auto; padding: 20px; }
+        .layer-box { background: white; border-radius: 12px; padding: 20px; margin-bottom: 25px; border: 1px solid #ddd; }
+        .layer-title { font-size: 12px; font-weight: 800; color: #555; text-transform: uppercase; margin-bottom: 15px; border-left: 5px solid var(--navy); padding-left: 10px; }
         .matrix-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
         .matrix-item { background: #f8f9fa; border: 1px solid #ddd; border-radius: 8px; padding: 12px; text-align: center; font-size: 10px; font-weight: 700; text-decoration: none; color: #333; }
-        .active-layer { background: #333 !important; color: var(--pbe-gold) !important; border-color: var(--pbe-gold) !important; }
+        .active-layer { background: #333; color: var(--gold); border-color: var(--gold); }
         .registry-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-        .registry-table th { background: #f1f1f1; padding: 12px; text-align: left; text-transform: uppercase; border-bottom: 2px solid #ddd; }
+        .registry-table th { background: #f1f1f1; padding: 12px; text-align: left; border-bottom: 2px solid #ddd; }
         .registry-table td { padding: 15px 12px; border-bottom: 1px solid #eee; }
-        .btn-6 { padding: 8px 12px; border-radius: 6px; color: white; text-decoration: none; font-size: 10px; font-weight: 800; margin: 2px; border: none; cursor: pointer; }
-        .bg-navy { background: #1e293b; } .bg-wa { background: #22c55e; } .bg-red { background: #ef4444; } .bg-sus { background: #64748b; } .bg-gold { background: var(--pbe-gold); color: #000; }
+        .btn-6 { padding: 8px 12px; border-radius: 6px; color: white; text-decoration: none; font-size: 10px; font-weight: 800; margin: 2px; display: inline-block; border: none; }
+        .bg-navy { background: #1e293b; } .bg-wa { background: #22c55e; } .bg-red { background: #ef4444; } .bg-sus { background: #6c757d; } .bg-renew { background: var(--gold); color: #000; }
         .audit-scroll { height: 160px; overflow-y: auto; background: #fff; padding: 15px; border-radius: 10px; font-family: monospace; font-size: 12px; border: 1px solid #ddd; }
     </style>
 </head>
 <body>
     <div class="header">
-        <div class="logo-box"><img src="{{ url_for('static', filename='logo.png') }}" onerror="this.parentElement.style.display='none'"></div>
+        <div class="logo-circle"><img src="{{ url_for('static', filename='logo.png') }}" onerror="this.parentElement.style.display='none'"></div>
         <div style="font-size: 22px; font-weight: 900; letter-spacing: 2px;">PBE COMMAND CENTER</div>
     </div>
     <div class="container">{% block content %}{% endblock %}</div>
@@ -118,17 +119,37 @@ BASE_HTML = """
 </html>
 """
 
-# --- 5. DASHBOARD ROUTE ---
+# --- 5. CORE ROUTES ---
+
+@app.route("/")
+def home():
+    # FIXES THE "NOT FOUND" ON PRIMARY URL
+    return redirect(url_for('admin_login'))
+
+@app.route("/pbe-vanguard-hq-2026", methods=['GET', 'POST'])
+def admin_login():
+    if request.method == 'POST':
+        pwd, name = request.form.get('password'), request.form.get('name')
+        if pwd == ADMIN_PASSWORD:
+            session['role'], session['name'] = 'ADMIN', name
+            log_action("AUTH", "Admin Access", name)
+            return redirect(url_for('admin_dashboard'))
+        elif pwd == SUPERVISOR_PASSWORD:
+            session['role'], session['name'] = 'SUPERVISOR', name
+            log_action("AUTH", "Supervisor Access", name)
+            return redirect(url_for('admin_dashboard'))
+    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", '<div class="layer-box" style="max-width:380px; margin: 80px auto; text-align:center;"><h3>SYSTEM LOCK</h3><form method="POST"><input name="name" style="width:100%; padding:15px; margin-bottom:10px; border-radius:8px; border:1px solid #ddd; box-sizing:border-box;" placeholder="Authorized Name" required><input type="password" name="password" style="width:100%; padding:15px; margin-bottom:15px; border-radius:8px; border:1px solid #ddd; box-sizing:border-box;" placeholder="Master Key" required><button class="btn-6 bg-navy" style="width:100%; padding:15px; font-size:12px;">UNLOCK SYSTEM</button></form></div>'))
+
 @app.route("/admin-dashboard")
 def admin_dashboard():
     if not session.get('role'): return redirect(url_for('admin_login'))
     conn = get_db(); cur = conn.cursor()
     
-    # Regional Distribution Healing logic
-    reg_counts = {}
+    # Regional Workforce Healing Logic
+    reg_stats = {}
     for r in GH_REGIONS:
         cur.execute("SELECT COUNT(*) FROM pbe_master_registry WHERE region = %s", (r,))
-        reg_counts[r] = cur.fetchone()[0]
+        reg_stats[r] = cur.fetchone()[0]
 
     cur.execute("SELECT * FROM pbe_master_registry ORDER BY id DESC")
     workers = cur.fetchall()
@@ -145,7 +166,7 @@ def admin_dashboard():
         </div>
 
         <div class="layer-box">
-            <div class="layer-title">🌍 REGIONAL WORKFORCE DISTRIBUTION (16 REGIONS)</div>
+            <div class="layer-title">🌍 REGIONAL WORKFORCE (16 REGIONS)</div>
             <div class="matrix-grid">
                 {{% for reg, count in stats.items() %}}
                 <div class="matrix-item" style="text-align:left;">
@@ -156,10 +177,10 @@ def admin_dashboard():
         </div>
 
         <div class="layer-box">
-            <div class="layer-title">👥 PERSONNEL REGISTRY CONTROL</div>
+            <div class="layer-title">👤 PERSONNEL REGISTRY CONTROL</div>
             <div style="overflow-x:auto;">
                 <table class="registry-table">
-                    <thead><tr><th>PBE-ID</th><th>NAME</th><th>RANK</th><th>COMMAND SUITE</th></tr></thead>
+                    <thead><tr><th>PBE-ID</th><th>NAME</th><th>RANK</th><th>6-COMMAND SUITE</th></tr></thead>
                     <tbody>
                         {{% for w in workers %}}
                         <tr>
@@ -168,9 +189,9 @@ def admin_dashboard():
                             <td>{{{{ w[7] }}}}</td>
                             <td>
                                 <a href="/admin/print/{{{{ w[5] }}}}" class="btn-6 bg-navy">PRINT</a>
-                                <a href="/admin/renew/{{{{ w[0] }}}}" class="btn-6 bg-gold">RENEW</a>
+                                <a href="/admin/renew/{{{{ w[0] }}}}" class="btn-6 bg-renew">RENEW</a>
                                 <a href="/admin/suspend/{{{{ w[0] }}}}" class="btn-6 bg-sus">SUSPEND</a>
-                                <a href="https://wa.me/{{{{ w[9] }}}}" class="btn-6 bg-wa" target="_blank">WA</a>
+                                <a href="https://wa.me/{{{{ w[9] }}}}" target="_blank" class="btn-6 bg-wa">WA</a>
                                 {{% if session['role'] == 'ADMIN' %}}
                                 <a href="/admin/approve/{{{{ w[0] }}}}" class="btn-6 bg-navy">APPROVE</a>
                                 <a href="/admin/delete/{{{{ w[0] }}}}" class="btn-6 bg-red" onclick="return confirm('ERASE?')">DELETE</a>
@@ -193,9 +214,9 @@ def admin_dashboard():
                 {{% endfor %}}
             </div>
         </div>
-    """), guilds=PBE_GUILDS, workers=workers, logs=logs, stats=reg_counts)
+    """), guilds=PBE_GUILDS, workers=workers, logs=logs, stats=reg_stats)
 
-# --- ID PRINTING WITH ROBOT MAPPING ---
+# --- ID PRINT ENGINE ---
 @app.route("/admin/print/<uid>")
 def print_id(uid):
     if not session.get('role'): return redirect(url_for('admin_login'))
