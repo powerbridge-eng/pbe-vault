@@ -1,4 +1,4 @@
-import os, random, string, re, requests, psycopg2, cloudinary, cloudinary.uploader, datetime
+import os, random, string, re, requests, psycopg2, cloudinary, cloudinary.uploader, datetime, time
 from flask import Flask, request, jsonify, render_template_string, send_file, redirect, url_for, session, abort
 from reportlab.pdfgen import canvas
 from reportlab.graphics.barcode import qr
@@ -14,7 +14,7 @@ ADMIN_PASSWORD = "PBE-Global-2026"
 SUPERVISOR_PASSWORD = "PBE_Secure_2026"
 
 app = Flask(__name__)
-app.secret_key = "PBE_SUPREME_UNIFIED_FINAL_2026"
+app.secret_key = "PBE_SUPREME_STABLE_FINAL_2026_MASTER"
 
 cloudinary.config(
     cloud_name = os.environ.get("CLOUDINARY_NAME"),
@@ -22,26 +22,23 @@ cloudinary.config(
     api_secret = os.environ.get("CLOUDINARY_API_SECRET")
 )
 
-def get_db(): return psycopg2.connect(DATABASE_URL)
+# --- 2. THE SMOOTH-START DATABASE ENGINE ---
+def get_db():
+    # CEO FIX: Retry loop to stop the 'Hanging' and 'Internal Server Error' on Render
+    for i in range(5):
+        try:
+            conn = psycopg2.connect(DATABASE_URL)
+            return conn
+        except Exception as e:
+            print(f"PBE System waking up... attempt {i+1}")
+            time.sleep(3) # Wait 3 seconds for Neon DB to wake up
+    return None
 
-# --- 2. THE PBE WORLD MATRIX ---
-PBE_GUILDS = [
-    "ELECTRICAL ENGINEERING", "SOLAR & ENERGY", "PLUMBING & HYDRAULICS", 
-    "MASONRY & CONSTRUCTION", "MECHANICAL & AUTO", "PBE TV", 
-    "CCTV & SECURITY", "ICT & SOFTWARE", "HVAC & COOLING", 
-    "FASHION DESIGN", "GENERAL TECHNICAL"
-]
-
-GH_REGIONS = [
-    "Greater Accra", "Ashanti", "Western", "Central", "Eastern", 
-    "Volta", "Northern", "Upper East", "Upper West", "Bono", 
-    "Bono East", "Ahafo", "Savannah", "North East", "Oti", "Western North"
-]
-
-# --- 3. SECURITY & SELF-HEALING ---
 def perform_self_heal():
+    conn = get_db()
+    if not conn: return
     try:
-        conn = get_db(); cur = conn.cursor()
+        cur = conn.cursor()
         cur.execute("""
             CREATE TABLE IF NOT EXISTS pbe_master_registry (
                 id SERIAL PRIMARY KEY, surname TEXT, firstname TEXT, dob TEXT, gender TEXT, 
@@ -56,37 +53,33 @@ def perform_self_heal():
             );
         """)
         conn.commit(); cur.close(); conn.close()
-    except Exception as e: print(f"Heal Error: {e}")
-
-with app.app_context(): perform_self_heal()
-
-def log_action(action, details, actor="SYSTEM"):
-    try:
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("INSERT INTO pbe_soul_audit (action, actor, details, ip, device) VALUES (%s, %s, %s, %s, %s)",
-                    (action, actor, details, request.remote_addr, f"{request.user_agent.platform}"))
-        conn.commit(); cur.close(); conn.close()
     except: pass
 
+# --- 3. THE PBE WORLD MATRIX ---
+PBE_GUILDS = ["ELECTRICAL ENGINEERING", "SOLAR & ENERGY", "PLUMBING & HYDRAULICS", "MASONRY & CONSTRUCTION", "MECHANICAL & AUTO", "PBE TV", "CCTV & SECURITY", "ICT & SOFTWARE", "HVAC & COOLING", "FASHION DESIGN", "GENERAL TECHNICAL"]
+GH_REGIONS = ["Greater Accra", "Ashanti", "Western", "Central", "Eastern", "Volta", "Northern", "Upper East", "Upper West", "Bono", "Bono East", "Ahafo", "Savannah", "North East", "Oti", "Western North"]
+
 # --- 4. HYBRID 15-CHAR ID LOGIC ---
-def gen_pbe_uid(firstname):
+def gen_pbe_uid(name):
     now = datetime.datetime.now()
-    prefix = f"PBE{now.strftime('%y%m')}{firstname[:3].upper()}"
+    prefix = f"PBE{now.strftime('%y%m')}{name[:3].upper()}"
     return prefix + ''.join(random.choices(string.digits, k=15-len(prefix)))
 
-def gen_pbe_lic(surname):
-    prefix = f"PBELIC{surname[:3].upper()}"
+def gen_pbe_lic(name):
+    prefix = f"PBELIC{name[:3].upper()}"
     return prefix + ''.join(random.choices(string.digits, k=15-len(prefix)))
 
 def get_live_balance():
     try:
+        # V2 Call
         r = requests.get("https://sms.arkesel.com/api/v2/clients/balance", headers={"api-key": ARKESEL_API_KEY}, timeout=3)
-        if r.status_code == 200: return f"{r.json().get('data', {}).get('available_balance', '0.00')} GHS"
+        if r.status_code == 200: return f"{r.json()['data']['available_balance']} GHS"
+        # V1 Fallback
         r1 = requests.get(f"https://sms.arkesel.com/api/v1/check-balance?api_key={ARKESEL_API_KEY}&response=json", timeout=3)
         return f"{r1.json().get('balance', '0.00')} GHS"
     except: return "Offline"
 
-# --- 5. EXECUTIVE UI (STANDALONE LOGO & BOTTOM BUTTONS) ---
+# --- 5. EXECUTIVE DESIGN ---
 BASE_HTML = """
 <!DOCTYPE html>
 <html>
@@ -95,7 +88,7 @@ BASE_HTML = """
     <title>PBE Command Center</title>
     <style>
         :root { --pbe-grey: #414042; --pbe-gold: #f2a900; --bg: #f4f6f9; }
-        body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); margin: 0; padding-bottom: 100px; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); margin: 0; padding-bottom: 100px; }
         .logo-standalone { text-align: center; padding: 30px; background: white; border-bottom: 2px solid #eee; }
         .logo-img { width: 100px; height: 100px; border-radius: 50%; border: 3px solid var(--pbe-gold); box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
         .nav-bar { background: var(--pbe-grey); color: white; padding: 15px; text-align: center; border-bottom: 4px solid var(--pbe-gold); font-weight: 900; letter-spacing: 2px; }
@@ -106,10 +99,11 @@ BASE_HTML = """
         .matrix-item { background: #f8f9fa; border: 1px solid #ddd; border-radius: 8px; padding: 12px; text-align: center; font-size: 10px; font-weight: 700; text-decoration: none; color: #333; }
         .registry-table { width: 100%; border-collapse: collapse; font-size: 11px; }
         .registry-table th { background: #f1f1f1; padding: 12px; text-align: left; }
-        .btn-6 { padding: 8px 12px; border-radius: 6px; color: white; text-decoration: none; font-size: 9px; font-weight: 800; margin: 2px; display: inline-block; }
+        .btn-6 { padding: 8px 12px; border-radius: 6px; color: white; text-decoration: none; font-size: 9px; font-weight: 800; margin: 2px; display: inline-block; border: none; }
         .bg-navy { background: #1e293b; } .bg-wa { background: #22c55e; } .bg-red { background: #ef4444; } .bg-gold { background: var(--pbe-gold); color: #000; }
+        .search-bar { width: 100%; padding: 15px; border-radius: 10px; border: 1px solid #ddd; font-size: 16px; box-sizing: border-box; }
         .fab-zone { position: fixed; bottom: 30px; right: 30px; display: flex; flex-direction: column; gap: 12px; z-index: 1000; }
-        .fab { width: 60px; height: 60px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; text-decoration: none; border: 2px solid var(--pbe-gold); box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
+        .fab { width: 60px; height: 60px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; text-decoration: none; border: 2px solid var(--pbe-gold); box-shadow: 0 5px 20px rgba(0,0,0,0.3); }
         .fab-invite { background: #333; color: var(--pbe-gold); }
         .fab-audit { background: var(--pbe-grey); color: white; }
     </style>
@@ -140,9 +134,9 @@ def admin_login():
     if request.method == 'POST':
         if request.form.get('password') == ADMIN_PASSWORD:
             session['role'] = 'ADMIN'
-            log_action("AUTH", "Admin Access Secured")
+            perform_self_heal() # Heal on login
             return redirect(url_for('admin_dashboard'))
-    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", '<div class="layer-box" style="max-width:380px; margin: 50px auto; text-align:center;"><form method="POST"><h3>SYSTEM LOCK</h3><input type="password" name="password" style="width:100%; padding:15px; border-radius:8px; border:1px solid #ddd;" placeholder="Master Key" required><button class="btn-6 bg-navy" style="width:100%; padding:15px; margin-top:10px;">UNLOCK</button></form></div>'))
+    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", '<div class="layer-box" style="max-width:380px; margin: 50px auto; text-align:center;"><form method="POST"><h3>SYSTEM LOCK</h3><input type="password" name="password" class="search-bar" placeholder="Master Key" required><button class="btn-6 bg-navy" style="width:100%; padding:15px; margin-top:10px;">UNLOCK</button></form></div>'))
 
 @app.route("/admin-dashboard")
 def admin_dashboard():
@@ -160,7 +154,7 @@ def admin_dashboard():
 
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", f"""
         <div style="display:flex; gap:10px; margin-bottom:15px;">
-            <input type="text" id="gSearch" style="width:100%; padding:15px; border-radius:10px; border:1px solid #ddd;" placeholder="Search Personnel..." onkeyup="runSearch()">
+            <input type="text" id="gSearch" class="search-bar" placeholder="Search Personnel Registry..." onkeyup="runSearch()">
             <div style="background:white; padding:15px; border-radius:10px; border:1px solid #ddd; white-space:nowrap; font-weight:bold;">SMS: <span style="color:green;">{bal}</span></div>
         </div>
 
@@ -183,7 +177,7 @@ def admin_dashboard():
 
         <div class="layer-box">
             <div class="layer-title">👥 PERSONNEL REGISTRY</div>
-            <table style="width:100%; border-collapse:collapse; font-size:11px;">
+            <table class="registry-table">
                 <thead><tr style="background:#f1f1f1;"><th style="padding:10px; text-align:left;">ID</th><th style="text-align:left;">NAME</th><th style="text-align:left;">ACTIONS (6)</th></tr></thead>
                 <tbody>
                     {{% for w in workers %}}
@@ -206,7 +200,7 @@ def admin_dashboard():
 
         <div class="fab-zone">
             <a href="/admin/audit" class="fab fab-audit" title="Soul Audit Logs">📜</a>
-            <a href="/admin/invite" class="fab fab-invite" title="Send OTP">+</a>
+            <a href="/admin/invite" class="fab fab-invite" title="Send OTP Invite">+</a>
         </div>
     """), guilds=PBE_GUILDS, stats=stats, workers=workers)
 
@@ -230,27 +224,27 @@ def register():
                     request.form.get('email'), request.form.get('ghana_card'), photo['secure_url'],
                     request.form.get('region'), datetime.date.today(), datetime.date.today() + datetime.timedelta(days=730), otp))
         conn.commit(); cur.close(); conn.close()
-        return "<h1 style='text-align:center; padding:50px;'>REGISTRATION SUCCESSFUL ✅</h1>"
+        return "<h1 style='text-align:center; padding-top:100px;'>REGISTRATION SUCCESSFUL ✅</h1>"
 
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """
         <div class="layer-box" style="max-width:500px; margin:auto;">
             <h3>PERSONNEL REGISTRY FORM</h3>
             <form method="POST" enctype="multipart/form-data">
-                <input name="otp" placeholder="Enter OTP" style="width:100%; padding:12px; margin-bottom:10px;" required>
-                <input name="firstname" placeholder="First Name" style="width:100%; padding:12px; margin-bottom:10px;" required>
-                <input name="surname" placeholder="Surname" style="width:100%; padding:12px; margin-bottom:10px;" required>
-                <select name="region" style="width:100%; padding:12px; margin-bottom:10px;">
+                <input name="otp" placeholder="Enter OTP" class="search-bar" style="margin-bottom:10px;" required>
+                <input name="firstname" placeholder="First Name" class="search-bar" style="margin-bottom:10px;" required>
+                <input name="surname" placeholder="Surname" class="search-bar" style="margin-bottom:10px;" required>
+                <select name="region" class="search-bar" style="margin-bottom:10px;">
                     {% for r in regions %}<option value="{{r}}">{{r}}</option>{% endfor %}
                 </select>
-                <select name="department" style="width:100%; padding:12px; margin-bottom:10px;">
+                <select name="department" class="search-bar" style="margin-bottom:10px;">
                     {% for g in guilds %}<option value="{{g}}">{{g}}</option>{% endfor %}
                 </select>
-                <input name="rank" placeholder="Job Rank" style="width:100%; padding:12px; margin-bottom:10px;" required>
-                <input name="phone" placeholder="Phone Number" style="width:100%; padding:12px; margin-bottom:10px;" required>
-                <input name="email" type="email" placeholder="Email" style="width:100%; padding:12px; margin-bottom:10px;" required>
-                <input name="ghana_card" placeholder="Ghana Card ID" style="width:100%; padding:12px; margin-bottom:10px;" required>
+                <input name="rank" placeholder="Job Rank" class="search-bar" style="margin-bottom:10px;" required>
+                <input name="phone" placeholder="Phone Number" class="search-bar" style="margin-bottom:10px;" required>
+                <input name="email" type="email" placeholder="Email" class="search-bar" style="margin-bottom:10px;" required>
+                <input name="ghana_card" placeholder="Ghana Card ID" class="search-bar" style="margin-bottom:10px;" required>
                 <p>Passport Photo:</p><input type="file" name="photo" required>
-                <button class="btn-6 bg-navy" style="width:100%; padding:15px; margin-top:10px;">SUBMIT FORM</button>
+                <button class="btn-6 bg-navy" style="width:100%; padding:15px; margin-top:10px;">SUBMIT REGISTRY</button>
             </form>
         </div>
     """), guilds=PBE_GUILDS, regions=GH_REGIONS)
@@ -263,15 +257,15 @@ def view_audit():
     logs = cur.fetchall(); cur.close(); conn.close()
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """
         <div class="layer-box">
-            <div class="layer-title">🛡️ SYSTEM AUDIT LOGS</div>
+            <div class="layer-title">🛡️ PBE SOUL AUDIT LOGS</div>
             <div style="max-height:400px; overflow-y:auto; font-family:monospace; font-size:11px;">
                 {% for l in logs %}
                 <div style="padding:10px; border-bottom:1px solid #eee;">
-                    [{{ l[1].strftime('%H:%M:%S') }}] <b>{{ l[3] }}</b>: {{ l[4] }}
+                    <span style="color:var(--pbe-gold);">[{{ l[1].strftime('%H:%M:%S') }}]</span> <b>{{ l[3] }}</b>: {{ l[4] }}
                 </div>
                 {% endfor %}
             </div>
-            <a href="/admin-dashboard" class="btn-6 bg-navy" style="width:100%; text-align:center; padding:15px; margin-top:20px;">BACK TO COMMAND</a>
+            <a href="/admin-dashboard" class="btn-6 bg-navy" style="width:100%; text-align:center; padding:15px; margin-top:20px;">RETURN TO COMMAND</a>
         </div>
     """), logs=logs)
 
@@ -284,10 +278,10 @@ def invite():
         cur.execute("INSERT INTO pbe_master_registry (phone_no, otp_code) VALUES (%s, %s)", (request.form.get('phone'), otp))
         conn.commit(); cur.close(); conn.close()
         requests.post("https://sms.arkesel.com/api/v2/sms/send", 
-                     json={"sender": "PBE_OTP", "message": f"PBE: Your OTP is {otp}. Register at {request.url_root}register", "recipients": [request.form.get('phone')]}, 
+                     json={"sender": "PBE_OTP", "message": f"PBE: Your OTP is {otp}. Register here: {request.url_root}register", "recipients": [request.form.get('phone')]}, 
                      headers={"api-key": ARKESEL_API_KEY})
         return redirect(url_for('admin_dashboard'))
-    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", '<div class="layer-box" style="max-width:400px; margin:auto;"><h3>SEND INVITE</h3><form method="POST"><input name="phone" placeholder="233..." style="width:100%; padding:15px;" required><button class="btn-6 bg-navy" style="width:100%; padding:15px; margin-top:10px;">SEND OTP</button></form></div>'))
+    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", '<div class="layer-box" style="max-width:400px; margin:auto;"><h3>SEND INVITE</h3><form method="POST"><input name="phone" placeholder="233..." class="search-bar" required><button class="btn-6 bg-navy" style="width:100%; padding:15px; margin-top:10px;">SEND OTP</button></form></div>'))
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
