@@ -13,7 +13,7 @@ ADMIN_PASSWORD = "PBE-Global-2026"
 SUPERVISOR_PASSWORD = "PBE_Secure_2026"
 
 app = Flask(__name__)
-app.secret_key = "PBE_SUPREME_SOVEREIGN_2026_PERMANENT_VAULT"
+app.secret_key = "PBE_SUPREME_SOVEREIGN_2026_FINAL_STABLE"
 
 cloudinary.config(
     cloud_name = os.environ.get("CLOUDINARY_NAME"),
@@ -29,7 +29,7 @@ def get_db():
             time.sleep(2)
     return None
 
-# --- 2. SECURITY & SOUL AUDIT (Fixed Tracking) ---
+# --- 2. SECURITY & SOUL AUDIT ---
 def log_action(action, details):
     actor = session.get('role', 'SYSTEM')
     conn = get_db()
@@ -153,11 +153,9 @@ def admin_dashboard():
                         <td>
                             <a href="/print/{{{{w[5]}}}}" class="btn-6 bg-navy">PRINT</a>
                             <a href="https://wa.me/{{{{ w[9] }}}}" target="_blank" class="btn-6 bg-wa">WA</a>
-                            <a href="mailto:{{{{ w[10] }}}}" class="btn-6 bg-navy">EMAIL</a>
                             {{% if role == 'ADMIN' %}}
                             <a href="/approve/{{{{w[5]}}}}" class="btn-6 bg-wa">APPROVE</a>
                             <a href="/suspend/{{{{w[5]}}}}" class="btn-6 bg-sus">SUSPEND</a>
-                            <a href="/unsuspend/{{{{w[5]}}}}" class="btn-6 bg-navy">UNSUSPEND</a>
                             <a href="/renew/{{{{w[5]}}}}" class="btn-6 bg-gold">RENEW</a>
                             <a href="/delete/{{{{w[5]}}}}" class="btn-6 bg-red">DELETE</a>
                             {{% endif %}}
@@ -168,18 +166,20 @@ def admin_dashboard():
             </table>
         </div>
         <div class="fab-zone">
-            <a href="/admin/alerts" class="fab fab-alert" title="Renewal Alerts">🔔 {{{{expiry_alerts}}}}</a>
-            {{% if role == 'ADMIN' %}}<a href="/admin/audit" class="fab fab-audit" title="Soul Audit">📜</a>{{% endif %}}
+            <a href="#" class="fab fab-alert" title="Alerts">🔔 {expiry_alerts}</a>
+            {{% if role == 'ADMIN' %}}<a href="/admin/audit" class="fab fab-audit">📜</a>{{% endif %}}
             <a href="/admin/invite" class="fab fab-invite">+</a>
         </div>
-    """), stats=stats, workers=workers, expiry_alerts=expiry_alerts, role=role))
+    """), stats=stats, workers=workers, role=role, expiry_alerts=expiry_alerts))
 
 # --- 6. COMMANDS & ENROLLMENT ---
 @app.route("/approve/<uid>")
 def approve_cmd(uid):
     if session.get('role') != 'ADMIN': abort(403)
-    conn = get_db(); cur = conn.cursor(); cur.execute("UPDATE pbe_master_registry SET status = 'ACTIVE' WHERE pbe_uid = %s", (uid,))
-    conn.commit(); cur.close(); conn.close(); log_action("APPROVE", f"Activated {uid}")
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("UPDATE pbe_master_registry SET status = 'ACTIVE' WHERE pbe_uid = %s", (uid,))
+    conn.commit(); cur.close(); conn.close()
+    log_action("APPROVE", f"Activated {uid}")
     return redirect(url_for('admin_dashboard'))
 
 @app.route("/register", methods=['GET', 'POST'])
@@ -200,12 +200,12 @@ def register():
 @app.route("/pbe-vanguard-hq-2026", methods=['GET', 'POST'])
 def admin_login():
     ip = request.remote_addr
-    if is_blacklisted(ip): return "<h1>403: ACCESS DENIED (BLACKLISTED)</h1>"
+    if is_blacklisted(ip): return "<h1>403: ACCESS DENIED (72HR BLACKLIST)</h1>"
     if request.method == 'POST':
         pwd = request.form.get('password')
         if pwd == ADMIN_PASSWORD: session['role'] = 'ADMIN'; return redirect(url_for('admin_dashboard'))
         elif pwd == SUPERVISOR_PASSWORD: session['role'] = 'SUPERVISOR'; return redirect(url_for('admin_dashboard'))
-        else: blacklist_ip(ip); log_action("SECURITY", f"Blocked IP: {ip}"); return redirect(url_for('admin_login'))
+        else: blacklist_ip(ip); log_action("SECURITY", f"Intruder blocked: {ip}"); return redirect(url_for('admin_login'))
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """<div class="layer-box" style="max-width:400px; margin:auto; text-align:center;"><h3>SYSTEM LOCK</h3><form method="POST"><input type="password" name="password" required><button class="btn-6 bg-navy">UNLOCK</button></form></div>"""))
 
 @app.route("/admin/invite", methods=['GET', 'POST'])
@@ -224,7 +224,7 @@ def view_audit():
     if session.get('role') != 'ADMIN': abort(403)
     conn = get_db(); cur = conn.cursor(); cur.execute("SELECT timestamp, action, actor, details, ip FROM pbe_soul_audit ORDER BY id DESC LIMIT 50")
     logs = cur.fetchall(); cur.close(); conn.close()
-    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """<div class="layer-box"><h3>📜 AUDIT</h3>{% for l in logs %}<div style="font-size:11px; border-bottom:1px solid #eee; padding:5px;">[{{ l[0].strftime('%H:%M') }}] {{ l[2] }}: {{ l[1] }}</div>{% endfor %}<a href="/admin-dashboard" class="btn-6 bg-navy">BACK</a></div>"""))
+    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """<div class="layer-box"><h3>📜 AUDIT LOGS</h3>{% for l in logs %}<div style="font-size:11px; border-bottom:1px solid #eee; padding:5px;">[{{ l[0].strftime('%H:%M') }}] {{ l[2] }}: {{ l[1] }}</div>{% endfor %}<a href="/admin-dashboard" class="btn-6 bg-navy">BACK</a></div>"""))
 
 @app.route("/")
 def index(): return redirect(url_for('admin_login'))
