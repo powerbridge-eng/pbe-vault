@@ -27,47 +27,7 @@ def get_db():
         except: time.sleep(2)
     return None
 
-# --- 2. SECURITY DOCTOR (Blacklist & Tables) ---
-def init_system():
-    conn = get_db()
-    if not conn: return
-    cur = conn.cursor()
-    # PBE Registry
-    cur.execute("""CREATE TABLE IF NOT EXISTS pbe_master_registry (
-        id SERIAL PRIMARY KEY, surname TEXT, firstname TEXT, dob TEXT, gender TEXT, 
-        pbe_uid TEXT UNIQUE, pbe_license TEXT UNIQUE, rank TEXT, department TEXT,
-        phone_no TEXT UNIQUE, email TEXT UNIQUE, ghana_card TEXT UNIQUE, 
-        photo_url TEXT, status TEXT DEFAULT 'PENDING', otp_code TEXT, 
-        region TEXT, issuance_date DATE, expiry_date DATE
-    );""")
-    # Soul Audit
-    cur.execute("""CREATE TABLE IF NOT EXISTS pbe_soul_audit (
-        id SERIAL PRIMARY KEY, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, 
-        action TEXT, actor TEXT, details TEXT, ip TEXT, device TEXT
-    );""")
-    # 72-Hour Blacklist Table
-    cur.execute("""CREATE TABLE IF NOT EXISTS pbe_blacklist (
-        id SERIAL PRIMARY KEY, ip_address TEXT UNIQUE, locked_until TIMESTAMP
-    );""")
-    conn.commit(); cur.close(); conn.close()
-
-with app.app_context(): init_system()
-
-# --- 3. SOVEREIGN SECURITY LOGIC ---
-def is_blacklisted(ip):
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT locked_until FROM pbe_blacklist WHERE ip_address = %s", (ip,))
-    res = cur.fetchone()
-    cur.close(); conn.close()
-    if res and res[0] > datetime.datetime.now(): return True
-    return False
-
-def blacklist_ip(ip):
-    lock_time = datetime.datetime.now() + datetime.timedelta(hours=72)
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("INSERT INTO pbe_blacklist (ip_address, locked_until) VALUES (%s, %s) ON CONFLICT (ip_address) DO UPDATE SET locked_until = %s", (ip, lock_time, lock_time))
-    conn.commit(); cur.close(); conn.close()
-
+# --- 2. SECURITY & AUDIT LOGIC ---
 def log_action(action, details):
     actor = session.get('role', 'SYSTEM')
     conn = get_db()
@@ -80,10 +40,35 @@ def log_action(action, details):
             conn.commit(); cur.close(); conn.close()
         except: pass
 
-# --- 4. WORLD MATRIX ---
-GH_REGIONS = ["Greater Accra", "Ashanti", "Western", "Central", "Eastern", "Volta", "Northern", "Upper East", "Upper West", "Bono", "Bono East", "Ahafo", "Savannah", "North East", "Oti", "Western North"]
+def init_system():
+    conn = get_db()
+    if not conn: return
+    cur = conn.cursor()
+    cur.execute("CREATE TABLE IF NOT EXISTS pbe_master_registry (id SERIAL PRIMARY KEY, surname TEXT, firstname TEXT, dob TEXT, gender TEXT, pbe_uid TEXT UNIQUE, pbe_license TEXT UNIQUE, rank TEXT, department TEXT, phone_no TEXT UNIQUE, email TEXT UNIQUE, ghana_card TEXT UNIQUE, photo_url TEXT, status TEXT DEFAULT 'PENDING', otp_code TEXT, region TEXT, issuance_date DATE, expiry_date DATE);")
+    cur.execute("CREATE TABLE IF NOT EXISTS pbe_soul_audit (id SERIAL PRIMARY KEY, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, action TEXT, actor TEXT, details TEXT, ip TEXT, device TEXT);")
+    cur.execute("CREATE TABLE IF NOT EXISTS pbe_blacklist (id SERIAL PRIMARY KEY, ip_address TEXT UNIQUE, locked_until TIMESTAMP);")
+    conn.commit(); cur.close(); conn.close()
 
-# --- 5. EXECUTIVE UI ---
+with app.app_context(): init_system()
+
+def is_blacklisted(ip):
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("SELECT locked_until FROM pbe_blacklist WHERE ip_address = %s", (ip,))
+    res = cur.fetchone()
+    cur.close(); conn.close()
+    return True if res and res[0] > datetime.datetime.now() else False
+
+def blacklist_ip(ip):
+    lock_time = datetime.datetime.now() + datetime.timedelta(hours=72)
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("INSERT INTO pbe_blacklist (ip_address, locked_until) VALUES (%s, %s) ON CONFLICT (ip_address) DO UPDATE SET locked_until = %s", (ip, lock_time, lock_time))
+    conn.commit(); cur.close(); conn.close()
+
+# --- 3. PBE WORLD MATRIX ---
+GH_REGIONS = ["Greater Accra", "Ashanti", "Western", "Central", "Eastern", "Volta", "Northern", "Upper East", "Upper West", "Bono", "Bono East", "Ahafo", "Savannah", "North East", "Oti", "Western North"]
+PBE_GUILDS = ["ELECTRICAL", "SOLAR", "PLUMBING", "MASONRY", "MECHANICAL", "PBE TV", "CCTV", "ICT", "HVAC", "FASHION", "GENERAL"]
+
+# --- 4. EXECUTIVE UI ---
 BASE_HTML = """
 <!DOCTYPE html>
 <html>
@@ -123,7 +108,7 @@ BASE_HTML = """
 </html>
 """
 
-# --- 6. DASHBOARD & PERMISSIONS ---
+# --- 5. DASHBOARD ---
 @app.route("/admin-dashboard")
 def admin_dashboard():
     if not session.get('role'): return redirect(url_for('admin_login'))
@@ -197,14 +182,14 @@ def admin_dashboard():
         </div>
     """), stats=stats, workers=workers, expiry_alerts=expiry_alerts, role=role))
 
-# --- 7. COMMAND PATHWAYS (LOCKED) ---
+# --- 6. COMMAND PATHWAYS ---
 @app.route("/approve/<uid>")
 def approve_cmd(uid):
     if session.get('role') != 'ADMIN': abort(403)
     conn = get_db(); cur = conn.cursor()
     cur.execute("UPDATE pbe_master_registry SET status = 'ACTIVE' WHERE pbe_uid = %s", (uid,))
     conn.commit(); cur.close(); conn.close()
-    log_action("APPROVE", f"Status set to ACTIVE for {uid}")
+    log_action("APPROVE", f"Activated worker {uid}")
     return redirect(url_for('admin_dashboard'))
 
 @app.route("/unsuspend/<uid>")
@@ -216,11 +201,34 @@ def unsuspend_cmd(uid):
     log_action("UNSUSPEND", f"Restored active status for {uid}")
     return redirect(url_for('admin_dashboard'))
 
+# --- 7. ENROLLMENT ---
+@app.route("/register", methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        otp = request.form.get('otp')
+        first, last = request.form.get('firstname').upper(), request.form.get('surname').upper()
+        photo = cloudinary.uploader.upload(request.files['photo'], public_id=f"PBE_PASSPORT_{last}_{first}")
+        id_img = cloudinary.uploader.upload(request.files['ghana_card_img'], public_id=f"PBE_GHANACARD_{last}_{first}")
+        
+        uid = f"PBE{datetime.datetime.now().strftime('%y%m')}{first[:3]}{''.join(random.choices(string.digits, k=4))}"
+        lic = f"PBELIC{last[:3]}{''.join(random.choices(string.digits, k=6))}"
+        
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("""UPDATE pbe_master_registry SET surname=%s, firstname=%s, pbe_uid=%s, pbe_license=%s, 
+                    rank=%s, department=%s, email=%s, photo_url=%s, ghana_card=%s, region=%s, 
+                    issuance_date=%s, expiry_date=%s, status='PENDING' WHERE otp_code=%s""",
+                   (last, first, uid, lic, request.form.get('rank'), request.form.get('department'),
+                    request.form.get('email'), photo['secure_url'], request.form.get('ghana_card_no'), 
+                    request.form.get('region'), datetime.date.today(), datetime.date.today() + datetime.timedelta(days=730), otp))
+        conn.commit(); cur.close(); conn.close()
+        return "<h1>REGISTRY SUBMITTED ✅</h1>"
+    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """<div class="layer-box" style="max-width:500px; margin:auto;"><h3>ENROLLMENT</h3><form method="POST" enctype="multipart/form-data"><input name="otp" placeholder="OTP" required style="width:100%; padding:10px; margin-bottom:10px;"><input name="firstname" placeholder="First Name" required style="width:100%; padding:10px; margin-bottom:10px;"><input name="surname" placeholder="Surname" required style="width:100%; padding:10px; margin-bottom:10px;"><input name="ghana_card_no" placeholder="Ghana Card No" required style="width:100%; padding:10px; margin-bottom:10px;"><select name="region" style="width:100%; padding:10px; margin-bottom:10px;">{% for r in regions %}<option value="{{r}}">{{r}}</option>{% endfor %}</select><select name="department" style="width:100%; padding:10px; margin-bottom:10px;">{% for g in guilds %}<option value="{{g}}">{{g}}</option>{% endfor %}</select><input name="rank" placeholder="Rank" required style="width:100%; padding:10px; margin-bottom:10px;"><input name="email" type="email" placeholder="Email" required style="width:100%; padding:10px; margin-bottom:10px;"><p>Passport Photo:</p><input type="file" name="photo" required><p>Ghana Card Image:</p><input type="file" name="ghana_card_img" required><button class="btn-6 bg-navy" style="width:100%; margin-top:10px;">SUBMIT</button></form></div>"""), regions=GH_REGIONS, guilds=PBE_GUILDS))
+
 # --- 8. LOGIN & BLACKLIST SHIELD ---
 @app.route("/pbe-vanguard-hq-2026", methods=['GET', 'POST'])
 def admin_login():
     ip = request.remote_addr
-    if is_blacklisted(ip): return "<h1>403: SYSTEM ACCESS REVOKED (BLACKLISTED)</h1>"
+    if is_blacklisted(ip): return "<h1>403: SYSTEM ACCESS REVOKED (72HR BLACKLIST)</h1>"
 
     if request.method == 'POST':
         pwd = request.form.get('password')
@@ -232,15 +240,34 @@ def admin_login():
             return redirect(url_for('admin_dashboard'))
         else:
             blacklist_ip(ip)
-            log_action("SECURITY", f"Intruder blocked from IP: {ip}")
+            log_action("SECURITY", f"Failed attempt from IP: {ip}")
             return redirect(url_for('admin_login'))
 
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """<div class="layer-box" style="max-width:400px; margin:auto; text-align:center;"><h3>SYSTEM LOCK</h3><form method="POST"><input type="password" name="password" required><button class="btn-6 bg-navy">UNLOCK</button></form></div>"""))
 
+@app.route("/admin/invite", methods=['GET', 'POST'])
+def invite():
+    if request.method == 'POST':
+        otp = str(random.randint(111111, 999999))
+        phone = request.form.get('phone')
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("DELETE FROM pbe_master_registry WHERE phone_no = %s AND status = 'PENDING'", (phone,))
+        cur.execute("INSERT INTO pbe_master_registry (phone_no, otp_code) VALUES (%s, %s)", (phone, otp))
+        conn.commit(); cur.close(); conn.close()
+        requests.post("https://sms.arkesel.com/api/v2/sms/send", json={"sender": "PBE_OTP", "message": f"PBE: Use OTP {otp} to register: {request.url_root}register", "recipients": [phone]}, headers={"api-key": ARKESEL_API_KEY})
+        return redirect(url_for('admin_dashboard'))
+    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """<div class="layer-box"><h3>+ INVITE</h3><form method="POST"><input name="phone" placeholder="233..." required style="width:100%; padding:10px;"><button class="btn-6 bg-navy">SEND OTP</button></form></div>"""))
+
+@app.route("/admin/audit")
+def view_audit():
+    if session.get('role') != 'ADMIN': abort(403)
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("SELECT timestamp, action, actor, details, ip FROM pbe_soul_audit ORDER BY id DESC LIMIT 50")
+    logs = cur.fetchall(); cur.close(); conn.close()
+    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """<div class="layer-box"><h3>📜 AUDIT LOGS</h3>{% for l in logs %}<div style="font-size:11px; border-bottom:1px solid #eee; padding:5px;">[{{ l[0].strftime('%H:%M') }}] {{ l[2] }}: {{ l[1] }} (IP: {{ l[4] }})</div>{% endfor %}<a href="/admin-dashboard" class="btn-6 bg-navy">BACK</a></div>"""))
+
 @app.route("/")
 def index(): return redirect(url_for('admin_login'))
-
-# --- (Other Routes: register, invite, audit, alerts maintained perfectly) ---
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
