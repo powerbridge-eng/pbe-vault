@@ -23,8 +23,11 @@ cloudinary.config(
 
 def get_db():
     for i in range(5):
-        try: return psycopg2.connect(DATABASE_URL)
-        except: time.sleep(2)
+        try:
+            conn = psycopg2.connect(DATABASE_URL)
+            return conn
+        except:
+            time.sleep(2)
     return None
 
 # --- 2. SECURITY & AUDIT LOGIC ---
@@ -52,7 +55,9 @@ def init_system():
 with app.app_context(): init_system()
 
 def is_blacklisted(ip):
-    conn = get_db(); cur = conn.cursor()
+    conn = get_db()
+    if not conn: return False
+    cur = conn.cursor()
     cur.execute("SELECT locked_until FROM pbe_blacklist WHERE ip_address = %s", (ip,))
     res = cur.fetchone()
     cur.close(); conn.close()
@@ -158,7 +163,7 @@ def admin_dashboard():
                         <td>{{{{ w[1] }}}} {{{{ w[2] }}}}</td>
                         <td><span style="color:{{ 'green' if w[13] == 'ACTIVE' else 'red' }}; font-weight:bold;">{{{{ w[13] }}}}</span></td>
                         <td>
-                            <a href="/print/{{{{w[5]}}}}" class="btn-6 bg-navy">PRINT</a>
+                            <a href="#" class="btn-6 bg-navy">PRINT</a>
                             <a href="https://wa.me/{{{{ w[9] }}}}" target="_blank" class="btn-6 bg-wa">WA</a>
                             <a href="mailto:{{{{ w[10] }}}}" class="btn-6 bg-navy">EMAIL</a>
                             {{% if role == 'ADMIN' %}}
@@ -199,6 +204,15 @@ def unsuspend_cmd(uid):
     cur.execute("UPDATE pbe_master_registry SET status = 'ACTIVE' WHERE pbe_uid = %s", (uid,))
     conn.commit(); cur.close(); conn.close()
     log_action("UNSUSPEND", f"Restored active status for {uid}")
+    return redirect(url_for('admin_dashboard'))
+
+@app.route("/delete/<uid>")
+def delete_cmd(uid):
+    if session.get('role') != 'ADMIN': abort(403)
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("DELETE FROM pbe_master_registry WHERE pbe_uid = %s", (uid,))
+    conn.commit(); cur.close(); conn.close()
+    log_action("DELETE", f"Purged worker {uid}")
     return redirect(url_for('admin_dashboard'))
 
 # --- 7. ENROLLMENT ---
@@ -247,6 +261,7 @@ def admin_login():
 
 @app.route("/admin/invite", methods=['GET', 'POST'])
 def invite():
+    if not session.get('role'): return redirect(url_for('admin_login'))
     if request.method == 'POST':
         otp = str(random.randint(111111, 999999))
         phone = request.form.get('phone')
