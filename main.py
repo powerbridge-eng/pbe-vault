@@ -24,13 +24,12 @@ cloudinary.config(
 def get_db():
     for i in range(5):
         try:
-            conn = psycopg2.connect(DATABASE_URL)
-            return conn
+            return psycopg2.connect(DATABASE_URL)
         except:
             time.sleep(2)
     return None
 
-# --- 2. SECURITY & AUDIT LOGIC ---
+# --- 2. SECURITY & SOUL AUDIT (Fixed Tracking) ---
 def log_action(action, details):
     actor = session.get('role', 'SYSTEM')
     conn = get_db()
@@ -38,7 +37,8 @@ def log_action(action, details):
         try:
             cur = conn.cursor()
             device = f"{request.user_agent.platform} | {request.user_agent.browser}"
-            cur.execute("INSERT INTO pbe_soul_audit (action, actor, details, ip, device) VALUES (%s, %s, %s, %s, %s)",
+            cur.execute("""INSERT INTO pbe_soul_audit (action, actor, details, ip, device) 
+                           VALUES (%s, %s, %s, %s, %s)""",
                         (action, actor, details, request.remote_addr, device))
             conn.commit(); cur.close(); conn.close()
         except: pass
@@ -55,9 +55,7 @@ def init_system():
 with app.app_context(): init_system()
 
 def is_blacklisted(ip):
-    conn = get_db()
-    if not conn: return False
-    cur = conn.cursor()
+    conn = get_db(); cur = conn.cursor()
     cur.execute("SELECT locked_until FROM pbe_blacklist WHERE ip_address = %s", (ip,))
     res = cur.fetchone()
     cur.close(); conn.close()
@@ -118,13 +116,6 @@ BASE_HTML = """
 def admin_dashboard():
     if not session.get('role'): return redirect(url_for('admin_login'))
     role = session.get('role')
-    
-    sms_bal = "Offline"
-    try:
-        r = requests.get("https://sms.arkesel.com/api/v2/clients/balance", headers={"api-key": ARKESEL_API_KEY}, timeout=2)
-        if r.status_code == 200: sms_bal = f"{r.json()['data']['available_balance']} GHS"
-    except: pass
-
     conn = get_db(); cur = conn.cursor()
     cur.execute("SELECT COUNT(*) FROM pbe_master_registry WHERE expiry_date <= CURRENT_DATE + INTERVAL '30 days'")
     expiry_alerts = cur.fetchone()[0]
@@ -141,9 +132,7 @@ def admin_dashboard():
             {{% if role == 'ADMIN' %}}
             <a href="https://cloudinary.com/console" target="_blank" class="btn-6 bg-navy" style="white-space:nowrap; padding:15px;">☁️ CLOUDINARY</a>
             {{% endif %}}
-            <div style="background:white; padding:15px; border-radius:10px; border:1px solid #ddd; white-space:nowrap; font-weight:bold;">SMS: <span style="color:green;">{sms_bal}</span></div>
         </div>
-
         <div class="layer-box">
             <div style="font-size:11px; font-weight:800; margin-bottom:10px;">🌍 GLOBAL ENGINEERING METRIC (16 REGIONS)</div>
             <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap:10px;">
@@ -152,10 +141,9 @@ def admin_dashboard():
                 {{% endfor %}}
             </div>
         </div>
-
         <div class="layer-box">
             <table style="width:100%; border-collapse:collapse; font-size:11px;">
-                <thead><tr style="background:#f1f1f1;"><th style="padding:10px; text-align:left;">PBE LICENSE / ID</th><th style="text-align:left;">NAME</th><th style="text-align:left;">STATUS</th><th style="text-align:left;">COMMANDS</th></tr></thead>
+                <thead><tr style="background:#f1f1f1;"><th style="padding:10px; text-align:left;">LICENSE / ID</th><th style="text-align:left;">NAME</th><th style="text-align:left;">STATUS</th><th style="text-align:left;">COMMANDS</th></tr></thead>
                 <tbody>
                     {{% for w in workers %}}
                     <tr class="worker-row" style="border-bottom:1px solid #eee;">
@@ -163,7 +151,7 @@ def admin_dashboard():
                         <td>{{{{ w[1] }}}} {{{{ w[2] }}}}</td>
                         <td><span style="color:{{ 'green' if w[13] == 'ACTIVE' else 'red' }}; font-weight:bold;">{{{{ w[13] }}}}</span></td>
                         <td>
-                            <a href="#" class="btn-6 bg-navy">PRINT</a>
+                            <a href="/print/{{{{w[5]}}}}" class="btn-6 bg-navy">PRINT</a>
                             <a href="https://wa.me/{{{{ w[9] }}}}" target="_blank" class="btn-6 bg-wa">WA</a>
                             <a href="mailto:{{{{ w[10] }}}}" class="btn-6 bg-navy">EMAIL</a>
                             {{% if role == 'ADMIN' %}}
@@ -179,7 +167,6 @@ def admin_dashboard():
                 </tbody>
             </table>
         </div>
-
         <div class="fab-zone">
             <a href="/admin/alerts" class="fab fab-alert" title="Renewal Alerts">🔔 {{{{expiry_alerts}}}}</a>
             {{% if role == 'ADMIN' %}}<a href="/admin/audit" class="fab fab-audit" title="Soul Audit">📜</a>{{% endif %}}
@@ -187,35 +174,14 @@ def admin_dashboard():
         </div>
     """), stats=stats, workers=workers, expiry_alerts=expiry_alerts, role=role))
 
-# --- 6. COMMAND PATHWAYS ---
+# --- 6. COMMANDS & ENROLLMENT ---
 @app.route("/approve/<uid>")
 def approve_cmd(uid):
     if session.get('role') != 'ADMIN': abort(403)
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("UPDATE pbe_master_registry SET status = 'ACTIVE' WHERE pbe_uid = %s", (uid,))
-    conn.commit(); cur.close(); conn.close()
-    log_action("APPROVE", f"Activated worker {uid}")
+    conn = get_db(); cur = conn.cursor(); cur.execute("UPDATE pbe_master_registry SET status = 'ACTIVE' WHERE pbe_uid = %s", (uid,))
+    conn.commit(); cur.close(); conn.close(); log_action("APPROVE", f"Activated {uid}")
     return redirect(url_for('admin_dashboard'))
 
-@app.route("/unsuspend/<uid>")
-def unsuspend_cmd(uid):
-    if session.get('role') != 'ADMIN': abort(403)
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("UPDATE pbe_master_registry SET status = 'ACTIVE' WHERE pbe_uid = %s", (uid,))
-    conn.commit(); cur.close(); conn.close()
-    log_action("UNSUSPEND", f"Restored active status for {uid}")
-    return redirect(url_for('admin_dashboard'))
-
-@app.route("/delete/<uid>")
-def delete_cmd(uid):
-    if session.get('role') != 'ADMIN': abort(403)
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("DELETE FROM pbe_master_registry WHERE pbe_uid = %s", (uid,))
-    conn.commit(); cur.close(); conn.close()
-    log_action("DELETE", f"Purged worker {uid}")
-    return redirect(url_for('admin_dashboard'))
-
-# --- 7. ENROLLMENT ---
 @app.route("/register", methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
@@ -223,63 +189,42 @@ def register():
         first, last = request.form.get('firstname').upper(), request.form.get('surname').upper()
         photo = cloudinary.uploader.upload(request.files['photo'], public_id=f"PBE_PASSPORT_{last}_{first}")
         id_img = cloudinary.uploader.upload(request.files['ghana_card_img'], public_id=f"PBE_GHANACARD_{last}_{first}")
-        
         uid = f"PBE{datetime.datetime.now().strftime('%y%m')}{first[:3]}{''.join(random.choices(string.digits, k=4))}"
         lic = f"PBELIC{last[:3]}{''.join(random.choices(string.digits, k=6))}"
-        
         conn = get_db(); cur = conn.cursor()
-        cur.execute("""UPDATE pbe_master_registry SET surname=%s, firstname=%s, pbe_uid=%s, pbe_license=%s, 
-                    rank=%s, department=%s, email=%s, photo_url=%s, ghana_card=%s, region=%s, 
-                    issuance_date=%s, expiry_date=%s, status='PENDING' WHERE otp_code=%s""",
-                   (last, first, uid, lic, request.form.get('rank'), request.form.get('department'),
-                    request.form.get('email'), photo['secure_url'], request.form.get('ghana_card_no'), 
-                    request.form.get('region'), datetime.date.today(), datetime.date.today() + datetime.timedelta(days=730), otp))
-        conn.commit(); cur.close(); conn.close()
-        return "<h1>REGISTRY SUBMITTED ✅</h1>"
+        cur.execute("""UPDATE pbe_master_registry SET surname=%s, firstname=%s, pbe_uid=%s, pbe_license=%s, rank=%s, department=%s, email=%s, photo_url=%s, ghana_card=%s, region=%s, issuance_date=%s, expiry_date=%s, status='PENDING' WHERE otp_code=%s""",
+                   (last, first, uid, lic, request.form.get('rank'), request.form.get('department'), request.form.get('email'), photo['secure_url'], request.form.get('ghana_card_no'), request.form.get('region'), datetime.date.today(), datetime.date.today() + datetime.timedelta(days=730), otp))
+        conn.commit(); cur.close(); conn.close(); return "<h1>REGISTRY SUBMITTED ✅</h1>"
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """<div class="layer-box" style="max-width:500px; margin:auto;"><h3>ENROLLMENT</h3><form method="POST" enctype="multipart/form-data"><input name="otp" placeholder="OTP" required style="width:100%; padding:10px; margin-bottom:10px;"><input name="firstname" placeholder="First Name" required style="width:100%; padding:10px; margin-bottom:10px;"><input name="surname" placeholder="Surname" required style="width:100%; padding:10px; margin-bottom:10px;"><input name="ghana_card_no" placeholder="Ghana Card No" required style="width:100%; padding:10px; margin-bottom:10px;"><select name="region" style="width:100%; padding:10px; margin-bottom:10px;">{% for r in regions %}<option value="{{r}}">{{r}}</option>{% endfor %}</select><select name="department" style="width:100%; padding:10px; margin-bottom:10px;">{% for g in guilds %}<option value="{{g}}">{{g}}</option>{% endfor %}</select><input name="rank" placeholder="Rank" required style="width:100%; padding:10px; margin-bottom:10px;"><input name="email" type="email" placeholder="Email" required style="width:100%; padding:10px; margin-bottom:10px;"><p>Passport Photo:</p><input type="file" name="photo" required><p>Ghana Card Image:</p><input type="file" name="ghana_card_img" required><button class="btn-6 bg-navy" style="width:100%; margin-top:10px;">SUBMIT</button></form></div>"""), regions=GH_REGIONS, guilds=PBE_GUILDS))
 
-# --- 8. LOGIN & BLACKLIST SHIELD ---
 @app.route("/pbe-vanguard-hq-2026", methods=['GET', 'POST'])
 def admin_login():
     ip = request.remote_addr
-    if is_blacklisted(ip): return "<h1>403: SYSTEM ACCESS REVOKED (72HR BLACKLIST)</h1>"
-
+    if is_blacklisted(ip): return "<h1>403: ACCESS DENIED (BLACKLISTED)</h1>"
     if request.method == 'POST':
         pwd = request.form.get('password')
-        if pwd == ADMIN_PASSWORD: 
-            session['role'] = 'ADMIN'
-            return redirect(url_for('admin_dashboard'))
-        elif pwd == SUPERVISOR_PASSWORD: 
-            session['role'] = 'SUPERVISOR'
-            return redirect(url_for('admin_dashboard'))
-        else:
-            blacklist_ip(ip)
-            log_action("SECURITY", f"Failed attempt from IP: {ip}")
-            return redirect(url_for('admin_login'))
-
+        if pwd == ADMIN_PASSWORD: session['role'] = 'ADMIN'; return redirect(url_for('admin_dashboard'))
+        elif pwd == SUPERVISOR_PASSWORD: session['role'] = 'SUPERVISOR'; return redirect(url_for('admin_dashboard'))
+        else: blacklist_ip(ip); log_action("SECURITY", f"Blocked IP: {ip}"); return redirect(url_for('admin_login'))
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """<div class="layer-box" style="max-width:400px; margin:auto; text-align:center;"><h3>SYSTEM LOCK</h3><form method="POST"><input type="password" name="password" required><button class="btn-6 bg-navy">UNLOCK</button></form></div>"""))
 
 @app.route("/admin/invite", methods=['GET', 'POST'])
 def invite():
     if not session.get('role'): return redirect(url_for('admin_login'))
     if request.method == 'POST':
-        otp = str(random.randint(111111, 999999))
-        phone = request.form.get('phone')
-        conn = get_db(); cur = conn.cursor()
+        otp = str(random.randint(111111, 999999)); phone = request.form.get('phone'); conn = get_db(); cur = conn.cursor()
         cur.execute("DELETE FROM pbe_master_registry WHERE phone_no = %s AND status = 'PENDING'", (phone,))
         cur.execute("INSERT INTO pbe_master_registry (phone_no, otp_code) VALUES (%s, %s)", (phone, otp))
-        conn.commit(); cur.close(); conn.close()
-        requests.post("https://sms.arkesel.com/api/v2/sms/send", json={"sender": "PBE_OTP", "message": f"PBE: Use OTP {otp} to register: {request.url_root}register", "recipients": [phone]}, headers={"api-key": ARKESEL_API_KEY})
+        conn.commit(); cur.close(); conn.close(); requests.post("https://sms.arkesel.com/api/v2/sms/send", json={"sender": "PBE_OTP", "message": f"PBE: Use OTP {otp} to register: {request.url_root}register", "recipients": [phone]}, headers={"api-key": ARKESEL_API_KEY})
         return redirect(url_for('admin_dashboard'))
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """<div class="layer-box"><h3>+ INVITE</h3><form method="POST"><input name="phone" placeholder="233..." required style="width:100%; padding:10px;"><button class="btn-6 bg-navy">SEND OTP</button></form></div>"""))
 
 @app.route("/admin/audit")
 def view_audit():
     if session.get('role') != 'ADMIN': abort(403)
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT timestamp, action, actor, details, ip FROM pbe_soul_audit ORDER BY id DESC LIMIT 50")
+    conn = get_db(); cur = conn.cursor(); cur.execute("SELECT timestamp, action, actor, details, ip FROM pbe_soul_audit ORDER BY id DESC LIMIT 50")
     logs = cur.fetchall(); cur.close(); conn.close()
-    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """<div class="layer-box"><h3>📜 AUDIT LOGS</h3>{% for l in logs %}<div style="font-size:11px; border-bottom:1px solid #eee; padding:5px;">[{{ l[0].strftime('%H:%M') }}] {{ l[2] }}: {{ l[1] }} (IP: {{ l[4] }})</div>{% endfor %}<a href="/admin-dashboard" class="btn-6 bg-navy">BACK</a></div>"""))
+    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """<div class="layer-box"><h3>📜 AUDIT</h3>{% for l in logs %}<div style="font-size:11px; border-bottom:1px solid #eee; padding:5px;">[{{ l[0].strftime('%H:%M') }}] {{ l[2] }}: {{ l[1] }}</div>{% endfor %}<a href="/admin-dashboard" class="btn-6 bg-navy">BACK</a></div>"""))
 
 @app.route("/")
 def index(): return redirect(url_for('admin_login'))
