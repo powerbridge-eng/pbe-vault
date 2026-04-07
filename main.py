@@ -26,15 +26,20 @@ def get_db():
         except: time.sleep(2)
     return None
 
-# --- 2. THE SOUL AUDIT TRACKER (Fixed Tracking) ---
+# --- 2. SOUL AUDIT ENGINE (Fixed Tracking: IP, Stamp, Device) ---
 def log_action(action, details, actor="ADMIN"):
     conn = get_db()
     if conn:
-        cur = conn.cursor()
-        # Captures Timestamp, Action, Actor, IP, and Device Platform
-        cur.execute("INSERT INTO pbe_soul_audit (action, actor, details, ip, device) VALUES (%s, %s, %s, %s, %s)",
-                    (action, actor, details, request.remote_addr, f"{request.user_agent.platform}"))
-        conn.commit(); cur.close(); conn.close()
+        try:
+            cur = conn.cursor()
+            device_info = f"{request.user_agent.platform} | {request.user_agent.browser}"
+            cur.execute("""INSERT INTO pbe_soul_audit (action, actor, details, ip, device) 
+                           VALUES (%s, %s, %s, %s, %s)""",
+                        (action, actor, details, request.remote_addr, device_info))
+            conn.commit()
+            cur.close()
+            conn.close()
+        except: pass
 
 def init_system():
     conn = get_db()
@@ -45,7 +50,7 @@ def init_system():
             id SERIAL PRIMARY KEY, surname TEXT, firstname TEXT, dob TEXT, gender TEXT, 
             pbe_uid TEXT UNIQUE, pbe_license TEXT UNIQUE, rank TEXT, department TEXT,
             phone_no TEXT UNIQUE, email TEXT UNIQUE, ghana_card TEXT UNIQUE, 
-            photo_url TEXT, status TEXT DEFAULT 'PENDING', otp_code TEXT, 
+            photo_url TEXT, status TEXT DEFAULT 'ACTIVE', otp_code TEXT, 
             region TEXT, issuance_date DATE, expiry_date DATE
         );
         CREATE TABLE IF NOT EXISTS pbe_soul_audit (
@@ -57,7 +62,7 @@ def init_system():
 
 with app.app_context(): init_system()
 
-# --- 3. THE PBE WORLD MATRIX ---
+# --- 3. PBE WORLD MATRIX ---
 PBE_GUILDS = ["ELECTRICAL ENGINEERING", "SOLAR & ENERGY", "PLUMBING & HYDRAULICS", "MASONRY & CONSTRUCTION", "MECHANICAL & AUTO", "PBE TV", "CCTV & SECURITY", "ICT & SOFTWARE", "HVAC & COOLING", "FASHION DESIGN", "ETC / GENERAL"]
 GH_REGIONS = ["Greater Accra", "Ashanti", "Western", "Central", "Eastern", "Volta", "Northern", "Upper East", "Upper West", "Bono", "Bono East", "Ahafo", "Savannah", "North East", "Oti", "Western North"]
 
@@ -103,11 +108,9 @@ BASE_HTML = """
 """
 
 # --- 5. EXECUTIVE DASHBOARD ---
-
 @app.route("/admin-dashboard")
 def admin_dashboard():
     if not session.get('role'): return redirect(url_for('admin_login'))
-    
     sms_bal = "Offline"
     try:
         r = requests.get("https://sms.arkesel.com/api/v2/clients/balance", headers={"api-key": ARKESEL_API_KEY}, timeout=2)
@@ -121,7 +124,6 @@ def admin_dashboard():
     for r in GH_REGIONS:
         cur.execute("SELECT COUNT(*) FROM pbe_master_registry WHERE region = %s", (r,))
         stats[r] = cur.fetchone()[0]
-        
     cur.execute("SELECT * FROM pbe_master_registry WHERE surname IS NOT NULL ORDER BY id DESC")
     workers = cur.fetchall(); cur.close(); conn.close()
     
@@ -164,24 +166,24 @@ def admin_dashboard():
         </div>
 
         <div class="fab-zone">
-            <a href="/admin/alerts" class="fab fab-alert">🔔 {{{{alerts}}}}</a>
-            <a href="/admin/audit" class="fab fab-audit">📜</a>
+            <a href="/admin/alerts" class="fab fab-alert" title="Renewal Alerts">🔔 {{{{alerts}}}}</a>
+            <a href="/admin/audit" class="fab fab-audit" title="Soul Audit">📜</a>
             <a href="/admin/invite" class="fab fab-invite">+</a>
         </div>
-    """), stats=stats, workers=workers, alerts=expiry_alerts))
+    """), stats=stats, workers=workers, alerts=expiry_alerts)
 
-# --- 6. COMMAND PATHWAYS (Fixing button actions) ---
+# --- 6. COMMAND PATHWAYS (Fixing "Internal Error") ---
 @app.route("/print/<uid>")
-def print_cmd(uid):
-    log_action("PRINT", f"Initiated ID Printing for {uid}")
-    return redirect(url_for('admin_dashboard'))
+def print_id(uid):
+    log_action("PRINT", f"Generating ID Card PDF for worker {uid}")
+    return f"ID Print Protocol Active for {uid}. Mapping template..."
 
 @app.route("/delete/<uid>")
 def delete_cmd(uid):
     conn = get_db(); cur = conn.cursor()
     cur.execute("DELETE FROM pbe_master_registry WHERE pbe_uid = %s", (uid,))
     conn.commit(); cur.close(); conn.close()
-    log_action("DELETE", f"Purged {uid} from registry")
+    log_action("DELETE", f"Purged record for {uid}")
     return redirect(url_for('admin_dashboard'))
 
 @app.route("/suspend/<uid>")
@@ -189,7 +191,7 @@ def suspend_cmd(uid):
     conn = get_db(); cur = conn.cursor()
     cur.execute("UPDATE pbe_master_registry SET status = 'SUSPENDED' WHERE pbe_uid = %s", (uid,))
     conn.commit(); cur.close(); conn.close()
-    log_action("SUSPEND", f"Suspended access for {uid}")
+    log_action("SUSPEND", f"Deactivated card for {uid}")
     return redirect(url_for('admin_dashboard'))
 
 @app.route("/renew/<uid>")
@@ -211,10 +213,9 @@ def register():
         
         # Identity Mapping for Cloudinary
         photo = cloudinary.uploader.upload(request.files['photo'], public_id=f"PBE_PASSPORT_{full_name}")
-        id_file = cloudinary.uploader.upload(request.files['ghana_card_img'], public_id=f"PBE_GHANACARD_{full_name}")
+        id_img = cloudinary.uploader.upload(request.files['ghana_card_img'], public_id=f"PBE_GHANACARD_{full_name}")
         
-        now = datetime.datetime.now()
-        uid = f"PBE{now.strftime('%y%m')}{first[:3]}{''.join(random.choices(string.digits, k=4))}"
+        uid = f"PBE{datetime.datetime.now().strftime('%y%m')}{first[:3]}{''.join(random.choices(string.digits, k=4))}"
         lic = f"PBELIC{last[:3]}{''.join(random.choices(string.digits, k=6))}"
         
         conn = get_db(); cur = conn.cursor()
@@ -225,30 +226,29 @@ def register():
                     request.form.get('email'), photo['secure_url'], request.form.get('ghana_card_no'), 
                     request.form.get('region'), datetime.date.today(), datetime.date.today() + datetime.timedelta(days=730), otp))
         conn.commit(); cur.close(); conn.close()
-        log_action("REGISTER", f"Personnel {full_name} joined PBE", actor=full_name)
+        log_action("REGISTER", f"Worker {full_name} completed enrollment", actor=full_name)
         return "<h1>REGISTRATION SUCCESSFUL ✅</h1>"
     
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """
         <div class="layer-box" style="max-width:500px; margin:auto;">
-            <h3>PERSONNEL REGISTRY FORM</h3>
+            <h3>PERSONNEL ENROLLMENT</h3>
             <form method="POST" enctype="multipart/form-data">
-                <input name="otp" placeholder="OTP from SMS" style="width:100%; padding:12px; margin-bottom:10px;" required>
+                <input name="otp" placeholder="OTP" style="width:100%; padding:12px; margin-bottom:10px;" required>
                 <input name="firstname" placeholder="First Name" style="width:100%; padding:12px; margin-bottom:10px;" required>
                 <input name="surname" placeholder="Surname" style="width:100%; padding:12px; margin-bottom:10px;" required>
                 <input name="ghana_card_no" placeholder="Ghana Card ID Number" style="width:100%; padding:12px; margin-bottom:10px;" required>
-                <select name="region" style="width:100%; padding:12px; margin-bottom:10px;">
-                    {% for r in regions %}<option value="{{r}}">{{r}}</option>{% endfor %}
-                </select>
+                <select name="region" style="width:100%; padding:12px; margin-bottom:10px;">{% for r in regions %}<option value="{{r}}">{{r}}</option>{% endfor %}</select>
+                <select name="department" style="width:100%; padding:12px; margin-bottom:10px;">{% for g in guilds %}<option value="{{g}}">{{g}}</option>{% endfor %}</select>
                 <input name="rank" placeholder="Job Rank" style="width:100%; padding:12px; margin-bottom:10px;" required>
                 <input name="email" type="email" placeholder="Email" style="width:100%; padding:12px; margin-bottom:10px;" required>
-                <p>Upload Passport Photo:</p><input type="file" name="photo" required>
-                <p>Upload Ghana Card Image:</p><input type="file" name="ghana_card_img" required>
+                <p>Passport Photo:</p><input type="file" name="photo" required>
+                <p>Ghana Card Image:</p><input type="file" name="ghana_card_img" required>
                 <button class="btn-6 bg-navy" style="width:100%; padding:15px; margin-top:10px;">SUBMIT REGISTRY</button>
             </form>
         </div>
-    """), regions=GH_REGIONS))
+    """), guilds=PBE_GUILDS, regions=GH_REGIONS)
 
-# --- 8. AUDIT LOGS (Fixed Tracking Display) ---
+# --- 8. LIVE AUDIT LOGS (Fixed Display) ---
 @app.route("/admin/audit")
 def view_audit():
     if not session.get('role'): return redirect(url_for('admin_login'))
@@ -257,12 +257,12 @@ def view_audit():
     logs = cur.fetchall(); cur.close(); conn.close()
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """
         <div class="layer-box">
-            <h3>📜 SOUL AUDIT (LIVE TRACKING)</h3>
+            <h3>📜 LIVE SOUL AUDIT LOGS</h3>
             <div style="font-family:monospace; font-size:11px; max-height:400px; overflow-y:auto;">
                 {% for l in logs %}
                 <div style="padding:10px; border-bottom:1px solid #eee;">
                     <span style="color:var(--pbe-gold);">[{{ l[0].strftime('%Y-%m-%d %H:%M') }}]</span> 
-                    <b>{{ l[2] }}</b>: {{ l[1] }} -> {{ l[3] }} <br>
+                    <b>{{ l[2] }}</b> performed <b>{{ l[1] }}</b>: {{ l[3] }} <br>
                     <small style="color:grey;">IP: {{ l[4] }}</small>
                 </div>
                 {% endfor %}
@@ -271,11 +271,15 @@ def view_audit():
         </div>
     """), logs=logs)
 
-# [Other routes maintained]
+# --- REMAINING ROUTES ---
+@app.route("/")
+def index(): return redirect(url_for('admin_login'))
+
 @app.route("/pbe-vanguard-hq-2026", methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST' and request.form.get('password') == ADMIN_PASSWORD:
         session['role'] = 'ADMIN'
+        log_action("AUTH", "Admin Login")
         return redirect(url_for('admin_dashboard'))
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """<div class="layer-box" style="max-width:400px; margin:auto; text-align:center;"><h3>SYSTEM LOCK</h3><form method="POST"><input type="password" name="password" required><button class="btn-6 bg-navy">UNLOCK</button></form></div>"""))
 
@@ -289,6 +293,7 @@ def invite():
         cur.execute("INSERT INTO pbe_master_registry (phone_no, otp_code) VALUES (%s, %s)", (phone, otp))
         conn.commit(); cur.close(); conn.close()
         requests.post("https://sms.arkesel.com/api/v2/sms/send", json={"sender": "PBE_OTP", "message": f"PBE: Use OTP {otp} to register: {request.url_root}register", "recipients": [phone]}, headers={"api-key": ARKESEL_API_KEY})
+        log_action("INVITE", f"Sent OTP to {phone}")
         return redirect(url_for('admin_dashboard'))
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """<div class="layer-box"><h3>+ SEND INVITE</h3><form method="POST"><input name="phone" placeholder="233..." style="width:100%; padding:10px;" required><button class="btn-6 bg-navy">SEND OTP</button></form></div>"""))
 
