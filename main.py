@@ -115,6 +115,7 @@ BASE_HTML = """
 def admin_dashboard():
     if not session.get('role'): return redirect(url_for('admin_login'))
     role = session.get('role')
+    
     conn = get_db(); cur = conn.cursor()
     cur.execute("SELECT COUNT(*) FROM pbe_master_registry WHERE expiry_date <= CURRENT_DATE + INTERVAL '30 days'")
     expiry_alerts = cur.fetchone()[0]
@@ -144,7 +145,7 @@ def admin_dashboard():
 
         <div class="layer-box">
             <table style="width:100%; border-collapse:collapse; font-size:11px;">
-                <thead><tr style="background:#f1f1f1;"><th style="padding:10px; text-align:left;">LICENSE / ID</th><th style="text-align:left;">NAME</th><th style="text-align:left;">STATUS</th><th style="text-align:left;">COMMANDS</th></tr></thead>
+                <thead><tr style="background:#f1f1f1;"><th style="padding:10px; text-align:left;">PBE LICENSE / ID</th><th style="text-align:left;">NAME</th><th style="text-align:left;">STATUS</th><th style="text-align:left;">COMMANDS</th></tr></thead>
                 <tbody>
                     {{% for w in workers %}}
                     <tr class="worker-row" style="border-bottom:1px solid #eee;">
@@ -154,9 +155,11 @@ def admin_dashboard():
                         <td>
                             <a href="#" class="btn-6 bg-navy">PRINT</a>
                             <a href="https://wa.me/{{{{ w[9] }}}}" target="_blank" class="btn-6 bg-wa">WA</a>
+                            <a href="mailto:{{{{ w[10] }}}}" class="btn-6 bg-navy">EMAIL</a>
                             {{% if role == 'ADMIN' %}}
                             <a href="/approve/{{{{w[5]}}}}" class="btn-6 bg-wa">APPROVE</a>
                             <a href="/suspend/{{{{w[5]}}}}" class="btn-6 bg-sus">SUSPEND</a>
+                            <a href="/unsuspend/{{{{w[5]}}}}" class="btn-6 bg-navy">UNSUSPEND</a>
                             <a href="/renew/{{{{w[5]}}}}" class="btn-6 bg-gold">RENEW</a>
                             <a href="/delete/{{{{w[5]}}}}" class="btn-6 bg-red">DELETE</a>
                             {{% endif %}}
@@ -168,13 +171,13 @@ def admin_dashboard():
         </div>
 
         <div class="fab-zone">
-            <a href="#" class="fab fab-alert" title="Alerts">🔔 {{{{expiry_alerts}}}}</a>
-            {{% if role == 'ADMIN' %}}<a href="/admin/audit" class="fab fab-audit">📜</a>{{% endif %}}
+            <a href="#" class="fab fab-alert" title="Renewal Alerts">🔔 {{{{expiry_alerts}}}}</a>
+            {{% if role == 'ADMIN' %}}<a href="/admin/audit" class="fab fab-audit" title="Soul Audit">📜</a>{{% endif %}}
             <a href="/admin/invite" class="fab fab-invite">+</a>
         </div>
-    """), stats=stats, workers=workers, role=role, expiry_alerts=expiry_alerts))
+    """), stats=stats, workers=workers, expiry_alerts=expiry_alerts, role=role))
 
-# --- 6. ROUTES: REGISTER, LOGIN, INVITE, AUDIT ---
+# --- 6. REGISTRATION & COMMANDS ---
 @app.route("/register", methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
@@ -187,18 +190,28 @@ def register():
         conn = get_db(); cur = conn.cursor()
         cur.execute("""UPDATE pbe_master_registry SET surname=%s, firstname=%s, pbe_uid=%s, pbe_license=%s, rank=%s, department=%s, email=%s, photo_url=%s, ghana_card=%s, region=%s, issuance_date=%s, expiry_date=%s, status='PENDING' WHERE otp_code=%s""",
                    (last, first, uid, lic, request.form.get('rank'), request.form.get('department'), request.form.get('email'), photo['secure_url'], request.form.get('ghana_card_no'), request.form.get('region'), datetime.date.today(), datetime.date.today() + datetime.timedelta(days=730), otp))
-        conn.commit(); cur.close(); conn.close(); return "<h1>REGISTRY SUBMITTED ✅</h1>"
+        conn.commit(); cur.close(); conn.close()
+        return "<h1>REGISTRY SUBMITTED ✅</h1>"
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """<div class="layer-box" style="max-width:500px; margin:auto;"><h3>ENROLLMENT</h3><form method="POST" enctype="multipart/form-data"><input name="otp" placeholder="OTP" required style="width:100%; padding:10px; margin-bottom:10px;"><input name="firstname" placeholder="First Name" required style="width:100%; padding:10px; margin-bottom:10px;"><input name="surname" placeholder="Surname" required style="width:100%; padding:10px; margin-bottom:10px;"><input name="ghana_card_no" placeholder="Ghana Card No" required style="width:100%; padding:10px; margin-bottom:10px;"><select name="region" style="width:100%; padding:10px; margin-bottom:10px;">{% for r in regions %}<option value="{{r}}">{{r}}</option>{% endfor %}</select><select name="department" style="width:100%; padding:10px; margin-bottom:10px;">{% for g in guilds %}<option value="{{g}}">{{g}}</option>{% endfor %}</select><input name="rank" placeholder="Rank" required style="width:100%; padding:10px; margin-bottom:10px;"><input name="email" type="email" placeholder="Email" required style="width:100%; padding:10px; margin-bottom:10px;"><p>Passport Photo:</p><input type="file" name="photo" required><p>Ghana Card Image:</p><input type="file" name="ghana_card_img" required><button class="btn-6 bg-navy" style="width:100%; margin-top:10px;">SUBMIT</button></form></div>"""), regions=GH_REGIONS, guilds=PBE_GUILDS))
 
+@app.route("/approve/<uid>")
+def approve_cmd(uid):
+    if session.get('role') != 'ADMIN': abort(403)
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("UPDATE pbe_master_registry SET status = 'ACTIVE' WHERE pbe_uid = %s", (uid,))
+    conn.commit(); cur.close(); conn.close()
+    return redirect(url_for('admin_dashboard'))
+
+# --- 7. LOGIN & SECURITY ---
 @app.route("/pbe-vanguard-hq-2026", methods=['GET', 'POST'])
 def admin_login():
     ip = request.remote_addr
-    if is_blacklisted(ip): return "<h1>403: ACCESS DENIED (BLACKLISTED)</h1>"
+    if is_blacklisted(ip): return "<h1>403: SYSTEM ACCESS REVOKED (BLACKLISTED)</h1>"
     if request.method == 'POST':
         pwd = request.form.get('password')
         if pwd == ADMIN_PASSWORD: session['role'] = 'ADMIN'; return redirect(url_for('admin_dashboard'))
         elif pwd == SUPERVISOR_PASSWORD: session['role'] = 'SUPERVISOR'; return redirect(url_for('admin_dashboard'))
-        else: blacklist_ip(ip); log_action("SECURITY", f"Failed attempt: {ip}"); return redirect(url_for('admin_login'))
+        else: blacklist_ip(ip); log_action("SECURITY", f"Failed attempt from: {ip}"); return redirect(url_for('admin_login'))
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """<div class="layer-box" style="max-width:400px; margin:auto; text-align:center;"><h3>SYSTEM LOCK</h3><form method="POST"><input type="password" name="password" required><button class="btn-6 bg-navy">UNLOCK</button></form></div>"""))
 
 @app.route("/admin/invite", methods=['GET', 'POST'])
