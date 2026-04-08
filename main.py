@@ -5,6 +5,7 @@ from reportlab.graphics.barcode import qr
 from reportlab.graphics.shapes import Drawing
 from reportlab.lib.units import inch
 from reportlab.lib import colors
+from reportlab.lib.utils import ImageReader # <- THE FIX FOR CLOUDINARY URLs
 from io import BytesIO, StringIO
 
 # --- 1. CORE CONFIGURATION ---
@@ -201,7 +202,7 @@ def admin_dashboard():
         </div>
 
         <div class="fab-zone">
-            <a href="/admin/alerts" class="fab" title="Alerts">🔔 {{{{alerts}}}}</a>
+            <a href="/admin/alerts" class="fab" title="Alerts">🔔</a>
             {{% if role == 'ADMIN' %}}<a href="/admin/audit" class="fab" title="Audit">📜</a>{{% endif %}}
             <a href="/admin/invite" class="fab" title="Invite">＋</a>
         </div>
@@ -243,33 +244,56 @@ def delete_cmd(uid):
     conn.commit(); cur.close(); conn.close(); log_soul_action("DELETE", f"Purged PBE-ID: {uid}")
     return redirect(url_for('admin_dashboard'))
 
+# --- ROBOT MAPPING LOGIC (THE FIX) ---
 @app.route("/admin/print-id/<pbe_uid>")
 def print_id(pbe_uid):
     if not session.get('role'): return redirect(url_for('admin_login'))
-    conn = get_db(); cur = conn.cursor(); cur.execute("SELECT * FROM pbe_master_registry WHERE pbe_uid = %s", (pbe_uid,))
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("SELECT * FROM pbe_master_registry WHERE pbe_uid = %s", (pbe_uid,))
     w = cur.fetchone(); cur.close(); conn.close()
     if not w: abort(404)
     
     log_soul_action("PRINT", f"Printed ID for {pbe_uid}")
-    buffer = BytesIO(); c = canvas.Canvas(buffer, pagesize=(3.375*inch, 2.125*inch))
-    tpl = os.path.join(app.root_path, 'static', 'Power Bridge Engineering ID Identity Template.png')
-    if os.path.exists(tpl): c.drawImage(tpl, 0, 0, width=3.375*inch, height=2.125*inch)
+    buffer = BytesIO()
+    c = canvas.Canvas(buffer, pagesize=(3.375*inch, 2.125*inch))
     
-    if w[13]: # photo_url
-        try: c.drawImage(w[13], 0.18*inch, 0.55*inch, width=1.02*inch, height=1.22*inch)
+    # Ensure this matches exactly what is in your Render /static folder
+    tpl_path = os.path.join(app.root_path, 'static', 'ID TEMPLATE.png') 
+    if os.path.exists(tpl_path): 
+        c.drawImage(tpl_path, 0, 0, width=3.375*inch, height=2.125*inch)
+    
+    if w[13]: # photo_url from Cloudinary
+        try: 
+            # Using ImageReader prevents internal server crashes for web URLs
+            profile_img = ImageReader(w[13]) 
+            
+            # --- Ghost Watermark Mapping (Left Side) ---
+            c.saveState()
+            c.setFillAlpha(0.2) # Make it transparent
+            c.drawImage(profile_img, 0.15*inch, 0.2*inch, width=0.6*inch, height=0.75*inch)
+            c.restoreState()
+
+            # --- Main Photo Mapping (Right Side) ---
+            c.drawImage(profile_img, 2.3*inch, 0.55*inch, width=0.9*inch, height=1.1*inch)
         except: pass
 
-    c.setFont("Helvetica-Bold", 7.5); c.setFillColor(colors.black)
-    c.drawString(1.35*inch, 1.55*inch, f"{w[1]}") # Surname
-    c.drawString(1.35*inch, 1.40*inch, f"{w[2]}") # Firstname
-    c.drawString(1.35*inch, 1.25*inch, f"{w[6]}") # PBE-ID
-    c.drawString(1.35*inch, 1.10*inch, f"{w[7]}") # LICENSE Number
+    # Dynamic Information Mapping
+    c.setFont("Helvetica-Bold", 8); c.setFillColor(colors.black)
+    c.drawString(0.85*inch, 1.65*inch, f"{w[1]} {w[2]}") # Name
+    c.setFont("Helvetica", 7)
+    c.drawString(0.85*inch, 1.45*inch, f"DEPT: {w[11]}") # Department
+    c.drawString(0.85*inch, 1.30*inch, f"RANK: {w[10]}") # Rank
+    c.setFont("Helvetica-Bold", 7)
+    c.drawString(0.85*inch, 1.10*inch, f"ID: {w[6]}") # PBE-ID
+    c.drawString(0.85*inch, 0.95*inch, f"LIC: {w[7]}") # License Number
     
+    # QR Validation Matrix
     qr_code = qr.QrCodeWidget(f"{request.url_root}verify/{w[6]}")
     bounds = qr_code.getBounds(); d = Drawing(40, 40, transform=[40./(bounds[2]-bounds[0]),0,0,40./(bounds[3]-bounds[1]),0,0])
-    d.add(qr_code); d.drawOn(c, 2.8*inch, 0.15*inch)
+    d.add(qr_code); d.drawOn(c, 1.3*inch, 0.15*inch)
+    
     c.showPage(); c.save(); buffer.seek(0)
-    return send_file(buffer, mimetype='application/pdf')
+    return send_file(buffer, mimetype='application/pdf', as_attachment=False, download_name=f"{w[6]}_ID.pdf")
 
 # --- 8. ENROLLMENT & GHANA CARD ---
 @app.route("/register", methods=['GET', 'POST'])
