@@ -5,7 +5,7 @@ from reportlab.graphics.barcode import qr
 from reportlab.graphics.shapes import Drawing
 from reportlab.lib.units import inch
 from reportlab.lib import colors
-from reportlab.lib.utils import ImageReader # <- THE FIX FOR CLOUDINARY URLs
+from reportlab.lib.utils import ImageReader
 from io import BytesIO, StringIO
 
 # --- 1. CORE CONFIGURATION ---
@@ -43,7 +43,8 @@ def init_db():
         );
     """)
     cur.execute("CREATE TABLE IF NOT EXISTS pbe_soul_audit (id SERIAL PRIMARY KEY, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, action TEXT, actor TEXT, details TEXT, ip_address TEXT, device_info TEXT);")
-    cur.execute("CREATE TABLE IF NOT EXISTS pbe_blacklist (id SERIAL PRIMARY KEY, ip_address TEXT UNIQUE, locked_until TIMESTAMP);")
+    # CHANGED TO pbe_ip_blacklist TO BYPASS THE OLD BROKEN TABLE
+    cur.execute("CREATE TABLE IF NOT EXISTS pbe_ip_blacklist (id SERIAL PRIMARY KEY, ip_address TEXT UNIQUE, locked_until TIMESTAMP);")
     conn.commit(); cur.close(); conn.close()
 
 with app.app_context(): init_db()
@@ -57,14 +58,15 @@ def log_soul_action(action, details):
     conn.commit(); cur.close(); conn.close()
 
 def is_blacklisted(ip):
-    conn = get_db(); cur = conn.cursor(); cur.execute("SELECT locked_until FROM pbe_blacklist WHERE ip_address = %s", (ip,))
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("SELECT locked_until FROM pbe_ip_blacklist WHERE ip_address = %s", (ip,))
     res = cur.fetchone(); cur.close(); conn.close()
     return True if res and res[0] > datetime.datetime.now() else False
 
 def blacklist_ip(ip):
     lock_time = datetime.datetime.now() + datetime.timedelta(hours=72)
     conn = get_db(); cur = conn.cursor()
-    cur.execute("INSERT INTO pbe_blacklist (ip_address, locked_until) VALUES (%s, %s) ON CONFLICT (ip_address) DO UPDATE SET locked_until = %s", (ip, lock_time, lock_time))
+    cur.execute("INSERT INTO pbe_ip_blacklist (ip_address, locked_until) VALUES (%s, %s) ON CONFLICT (ip_address) DO UPDATE SET locked_until = %s", (ip, lock_time, lock_time))
     conn.commit(); cur.close(); conn.close()
 
 # --- 3. 15-CHAR ID/LICENSE GENERATOR ---
@@ -202,7 +204,7 @@ def admin_dashboard():
         </div>
 
         <div class="fab-zone">
-            <a href="/admin/alerts" class="fab" title="Alerts">🔔</a>
+            <a href="/admin/alerts" class="fab" title="Alerts">🔔 {{{{alerts}}}}</a>
             {{% if role == 'ADMIN' %}}<a href="/admin/audit" class="fab" title="Audit">📜</a>{{% endif %}}
             <a href="/admin/invite" class="fab" title="Invite">＋</a>
         </div>
@@ -244,7 +246,7 @@ def delete_cmd(uid):
     conn.commit(); cur.close(); conn.close(); log_soul_action("DELETE", f"Purged PBE-ID: {uid}")
     return redirect(url_for('admin_dashboard'))
 
-# --- ROBOT MAPPING LOGIC (THE FIX) ---
+# --- ROBOT MAPPING LOGIC ---
 @app.route("/admin/print-id/<pbe_uid>")
 def print_id(pbe_uid):
     if not session.get('role'): return redirect(url_for('admin_login'))
@@ -257,37 +259,29 @@ def print_id(pbe_uid):
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=(3.375*inch, 2.125*inch))
     
-    # Ensure this matches exactly what is in your Render /static folder
     tpl_path = os.path.join(app.root_path, 'static', 'ID TEMPLATE.png') 
     if os.path.exists(tpl_path): 
         c.drawImage(tpl_path, 0, 0, width=3.375*inch, height=2.125*inch)
     
     if w[13]: # photo_url from Cloudinary
         try: 
-            # Using ImageReader prevents internal server crashes for web URLs
             profile_img = ImageReader(w[13]) 
-            
-            # --- Ghost Watermark Mapping (Left Side) ---
             c.saveState()
-            c.setFillAlpha(0.2) # Make it transparent
+            c.setFillAlpha(0.2)
             c.drawImage(profile_img, 0.15*inch, 0.2*inch, width=0.6*inch, height=0.75*inch)
             c.restoreState()
-
-            # --- Main Photo Mapping (Right Side) ---
             c.drawImage(profile_img, 2.3*inch, 0.55*inch, width=0.9*inch, height=1.1*inch)
         except: pass
 
-    # Dynamic Information Mapping
     c.setFont("Helvetica-Bold", 8); c.setFillColor(colors.black)
-    c.drawString(0.85*inch, 1.65*inch, f"{w[1]} {w[2]}") # Name
+    c.drawString(0.85*inch, 1.65*inch, f"{w[1]} {w[2]}")
     c.setFont("Helvetica", 7)
-    c.drawString(0.85*inch, 1.45*inch, f"DEPT: {w[11]}") # Department
-    c.drawString(0.85*inch, 1.30*inch, f"RANK: {w[10]}") # Rank
+    c.drawString(0.85*inch, 1.45*inch, f"DEPT: {w[11]}")
+    c.drawString(0.85*inch, 1.30*inch, f"RANK: {w[10]}")
     c.setFont("Helvetica-Bold", 7)
-    c.drawString(0.85*inch, 1.10*inch, f"ID: {w[6]}") # PBE-ID
-    c.drawString(0.85*inch, 0.95*inch, f"LIC: {w[7]}") # License Number
+    c.drawString(0.85*inch, 1.10*inch, f"ID: {w[6]}")
+    c.drawString(0.85*inch, 0.95*inch, f"LIC: {w[7]}")
     
-    # QR Validation Matrix
     qr_code = qr.QrCodeWidget(f"{request.url_root}verify/{w[6]}")
     bounds = qr_code.getBounds(); d = Drawing(40, 40, transform=[40./(bounds[2]-bounds[0]),0,0,40./(bounds[3]-bounds[1]),0,0])
     d.add(qr_code); d.drawOn(c, 1.3*inch, 0.15*inch)
