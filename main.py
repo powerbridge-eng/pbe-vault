@@ -31,9 +31,22 @@ def get_db():
         except: time.sleep(2)
     return None
 
-# --- 2. THE SAFE DATABASE DOCTOR ---
+# --- 2. THE SMART AUTO-RESTART DATABASE DOCTOR ---
 def init_db():
     conn = get_db(); cur = conn.cursor()
+    
+    # 1. THE SMART TRIGGER: Check if the new 'gender' column exists yet
+    cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='pbe_registry_2026' AND column_name='gender';")
+    is_updated = cur.fetchone()
+    
+    # 2. THE ONE-TIME PURGE: If it doesn't exist, wipe the old tables (Disables itself after first run)
+    if not is_updated:
+        cur.execute("DROP TABLE IF EXISTS pbe_registry_2026 CASCADE;")
+        cur.execute("DROP TABLE IF EXISTS pbe_audit_2026 CASCADE;")
+        cur.execute("DROP TABLE IF EXISTS pbe_ip_blacklist CASCADE;")
+        print("SYSTEM OVERRIDE: Executed one-time database purge and rebuild.")
+        
+    # 3. THE NEW BLUEPRINT: Build the upgraded tables safely
     cur.execute("""
         CREATE TABLE IF NOT EXISTS pbe_registry_2026 (
             id SERIAL PRIMARY KEY, surname TEXT, firstname TEXT, dob TEXT,
@@ -46,6 +59,7 @@ def init_db():
     """)
     cur.execute("CREATE TABLE IF NOT EXISTS pbe_audit_2026 (id SERIAL PRIMARY KEY, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, action TEXT, actor TEXT, details TEXT, ip_address TEXT, device_info TEXT);")
     cur.execute("CREATE TABLE IF NOT EXISTS pbe_ip_blacklist (id SERIAL PRIMARY KEY, ip_address TEXT UNIQUE, locked_until TIMESTAMP);")
+    
     conn.commit(); cur.close(); conn.close()
 
 with app.app_context(): init_db()
@@ -203,48 +217,7 @@ VERIFY_HTML = """
 </html>
 """
 
-# --- 5. THE NUCLEAR RESET BUTTON (HIDDEN VAULT) ---
-@app.route("/admin/nuclear-reset-2026", methods=['GET', 'POST'])
-def nuclear_reset():
-    if request.method == 'POST':
-        pwd = request.form.get('password')
-        if pwd == ADMIN_PASSWORD:
-            conn = get_db(); cur = conn.cursor()
-            cur.execute("DROP TABLE IF EXISTS pbe_registry_2026 CASCADE;")
-            cur.execute("DROP TABLE IF EXISTS pbe_audit_2026 CASCADE;")
-            cur.execute("DROP TABLE IF EXISTS pbe_ip_blacklist CASCADE;")
-            cur.execute("""
-                CREATE TABLE pbe_registry_2026 (
-                    id SERIAL PRIMARY KEY, surname TEXT, firstname TEXT, dob TEXT,
-                    gender TEXT, nationality TEXT,
-                    pbe_uid TEXT UNIQUE, pbe_license TEXT UNIQUE, rank TEXT, department TEXT,
-                    phone_no TEXT, email TEXT, ghana_card_no TEXT, photo_url TEXT, ghana_card_url TEXT,
-                    status TEXT DEFAULT 'PENDING', otp_code TEXT, region TEXT, station TEXT,
-                    issuance_date DATE, expiry_date DATE
-                );
-            """)
-            cur.execute("CREATE TABLE pbe_audit_2026 (id SERIAL PRIMARY KEY, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, action TEXT, actor TEXT, details TEXT, ip_address TEXT, device_info TEXT);")
-            cur.execute("CREATE TABLE pbe_ip_blacklist (id SERIAL PRIMARY KEY, ip_address TEXT UNIQUE, locked_until TIMESTAMP);")
-            conn.commit(); cur.close(); conn.close()
-            
-            log_soul_action("SYSTEM RESET", "General Imperial executed a Ground Zero database wipe and rebuild.")
-            return "<div style='text-align:center; padding:50px; font-family:sans-serif;'><h1>DATABASE PURGED AND REBUILT ✅</h1><p>The system is completely fresh.</p><a href='/admin-dashboard' style='padding:10px; background:#1e293b; color:white; text-decoration:none;'>RETURN TO HQ</a></div>"
-        else:
-            blacklist_ip(request.remote_addr)
-            return "<h1>UNAUTHORIZED LAUNCH CODE</h1>"
-            
-    return """
-    <div style='text-align:center; padding:50px; font-family:sans-serif;'>
-        <h2 style='color:red;'>⚠️ GROUND ZERO RESET ⚠️</h2>
-        <p>This will permanently erase all personnel and rebuild the new database schema.</p>
-        <form method="POST">
-            <input type="password" name="password" placeholder="Master Access Key" required style="padding:10px; width:250px;"><br><br>
-            <button style="padding:10px 20px; background:red; color:white; border:none; font-weight:bold; cursor:pointer;">EXECUTE PURGE</button>
-        </form>
-    </div>
-    """
-
-# --- 6. DASHBOARD & DUAL METRICS ---
+# --- 5. DASHBOARD & METRICS ---
 @app.route("/admin-dashboard")
 def admin_dashboard():
     if not session.get('role'): return redirect(url_for('admin_login'))
@@ -260,6 +233,7 @@ def admin_dashboard():
     cur.execute("SELECT COUNT(*) FROM pbe_registry_2026 WHERE expiry_date <= CURRENT_DATE + INTERVAL '30 days' AND surname IS NOT NULL")
     expiry_alerts = cur.fetchone()[0]
 
+    # Calculate 16-Region Metrics
     reg_stats = {}
     for r in GHANA_REGIONS:
         cur.execute("SELECT COUNT(*) FROM pbe_registry_2026 WHERE region = %s AND surname IS NOT NULL", (r,))
@@ -344,7 +318,7 @@ def admin_dashboard():
         </div>
     """), guilds=PBE_GUILDS, workers=workers, current_dept=dept, role=role, alerts=expiry_alerts, reg_stats=reg_stats, guild_stats=guild_stats)
 
-# --- 7. COMMAND ENDPOINTS (THE 8 BUTTONS) ---
+# --- 6. COMMAND ENDPOINTS (THE 8 BUTTONS) ---
 @app.route("/admin/approve/<uid>")
 def approve_cmd(uid):
     if session.get('role') != 'ADMIN': abort(403)
@@ -380,7 +354,7 @@ def delete_cmd(uid):
     conn.commit(); cur.close(); conn.close(); log_soul_action("DELETE", f"Purged PBE-ID: {uid}")
     return redirect(url_for('admin_dashboard'))
 
-# --- 8. ROBOT MAPPING LOGIC (FLAWLESS CALIBRATION) ---
+# --- 7. ROBOT MAPPING LOGIC (FLAWLESS CALIBRATION) ---
 @app.route("/admin/print-id/<pbe_uid>")
 def print_id(pbe_uid):
     if not session.get('role'): return redirect(url_for('admin_login'))
@@ -395,23 +369,25 @@ def print_id(pbe_uid):
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=(3.375*inch, 2.125*inch))
     
-    # Base Template Layer
+    # Base Template Layer (EXACT FILE NAME LOCKED IN)
     tpl_path = os.path.join(app.root_path, 'static', 'power bridge engineering ID card template.png') 
     if os.path.exists(tpl_path): 
         c.drawImage(tpl_path, 0, 0, width=3.375*inch, height=2.125*inch)
     else:
-        print("WARNING: Template not found. Check exact spelling!")
+        print("WARNING: Template not found. Check exact spelling and uppercase/lowercase letters!")
     
     # Main Photo Layer & Ghost Watermark 
     if w[13]: # photo_url 
         try: 
             profile_img = ImageReader(w[13]) 
             
+            # Sub-Layer A: Ghost Watermark (Bottom Left)
             c.saveState()
             c.setFillAlpha(0.2)
             c.drawImage(profile_img, 0.15*inch, 0.2*inch, width=0.6*inch, height=0.75*inch)
             c.restoreState()
             
+            # Sub-Layer B: Primary Photo (Right Side mapping based on Photoshop grid)
             c.drawImage(profile_img, 2.45*inch, 0.45*inch, width=0.75*inch, height=1.0*inch)
         except Exception as e: 
             print(f"Image Mapping Error: {e}")
@@ -422,7 +398,7 @@ def print_id(pbe_uid):
         pdfmetrics.registerFont(TTFont('MyriadPro', font_path))
         font_name = 'MyriadPro'
     except:
-        font_name = 'Helvetica-Bold'
+        font_name = 'Helvetica-Bold' # Fail-safe fallback
 
     c.setFont(font_name, 6)
     c.setFillColor(colors.black)
@@ -439,10 +415,10 @@ def print_id(pbe_uid):
     c.drawString(val_x, 0.80*inch, f"{w[8]}")  # Rank
     c.drawString(val_x, 0.65*inch, f"{w[19]}") # Date of Issuance
     
-    # Centered Expiry Date
+    # Centered Expiry Date (Bottom Center)
     c.drawCentredString(1.68*inch, 0.45*inch, f"{w[20]}") 
     
-    # QR Verification Matrix
+    # QR Verification Matrix (Bottom Center, replacing barcode)
     qr_code = qr.QrCodeWidget(f"{request.url_root}verify/{w[6]}")
     bounds = qr_code.getBounds()
     d = Drawing(35, 35, transform=[35./(bounds[2]-bounds[0]),0,0,35./(bounds[3]-bounds[1]),0,0])
@@ -455,7 +431,7 @@ def print_id(pbe_uid):
     
     return send_file(buffer, mimetype='application/pdf', as_attachment=False, download_name=f"{w[6]}_ID.pdf")
 
-# --- 9. PUBLIC VERIFICATION PORTAL ---
+# --- 8. PUBLIC VERIFICATION PORTAL ---
 @app.route("/verify/<pbe_uid>")
 def verify_id(pbe_uid):
     conn = get_db(); cur = conn.cursor()
@@ -473,7 +449,7 @@ def verify_id(pbe_uid):
         
     return render_template_string(VERIFY_HTML, w=w, live_status=live_status)
 
-# --- 10. ISOLATED ENROLLMENT ---
+# --- 9. ISOLATED ENROLLMENT ---
 @app.route("/register", methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
@@ -483,7 +459,7 @@ def register():
             fname = request.form.get('firstname', '').upper().replace(" ", "_")
             sname = request.form.get('surname', '').upper().replace(" ", "_")
             
-            # AI BACKGROUND REMOVAL ACTIVATED HERE
+            # --- AI BACKGROUND REMOVAL ACTIVATED HERE ---
             photo = cloudinary.uploader.upload(
                 request.files['photo'], 
                 public_id=f"PBE_PP_{fname}_{sname}",
@@ -535,7 +511,7 @@ def register():
         </div>
     """), guilds=PBE_GUILDS, regions=GHANA_REGIONS)
 
-# --- 11. SECURITY, INVITE & AUDIT ---
+# --- 10. SECURITY, INVITE & AUDIT ---
 @app.route("/pbe-vanguard-hq-2026", methods=['GET', 'POST'])
 def admin_login():
     ip = request.remote_addr
