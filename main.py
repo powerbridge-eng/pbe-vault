@@ -6,6 +6,8 @@ from reportlab.graphics.shapes import Drawing
 from reportlab.lib.units import inch
 from reportlab.lib import colors
 from reportlab.lib.utils import ImageReader
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfbase import pdfmetrics
 from io import BytesIO
 
 # --- 1. CORE CONFIGURATION ---
@@ -29,12 +31,13 @@ def get_db():
         except: time.sleep(2)
     return None
 
-# --- 2. SELF-HEALING DATABASE DOCTOR ---
+# --- 2. THE SAFE DATABASE DOCTOR ---
 def init_db():
     conn = get_db(); cur = conn.cursor()
     cur.execute("""
         CREATE TABLE IF NOT EXISTS pbe_registry_2026 (
             id SERIAL PRIMARY KEY, surname TEXT, firstname TEXT, dob TEXT,
+            gender TEXT, nationality TEXT,
             pbe_uid TEXT UNIQUE, pbe_license TEXT UNIQUE, rank TEXT, department TEXT,
             phone_no TEXT, email TEXT, ghana_card_no TEXT, photo_url TEXT, ghana_card_url TEXT,
             status TEXT DEFAULT 'PENDING', otp_code TEXT, region TEXT, station TEXT,
@@ -80,7 +83,7 @@ PBE_GUILDS = [
 ]
 GHANA_REGIONS = ["Greater Accra", "Ashanti", "Western", "Central", "Eastern", "Volta", "Northern", "Upper East", "Upper West", "Bono", "Bono East", "Ahafo", "Savannah", "North East", "Oti", "Western North"]
 
-# --- 4. EXECUTIVE UI DESIGN ---
+# --- 4A. EXECUTIVE UI DESIGN ---
 BASE_HTML = """
 <!DOCTYPE html>
 <html>
@@ -129,7 +132,119 @@ BASE_HTML = """
 </html>
 """
 
-# --- 5. DASHBOARD & METRICS ---
+# --- 4B. PUBLIC VERIFICATION UI DESIGN ---
+VERIFY_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
+    <title>PBE ID Verification</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #f4f6f9; margin: 0; padding: 20px; text-align: center; color: #343a40; }
+        .card { max-width: 400px; margin: 20px auto; background: #fff; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); overflow: hidden; border-top: 5px solid #ffc107; }
+        .header { background: #343a40; color: white; padding: 15px; font-weight: bold; font-size: 18px; letter-spacing: 1px; }
+        .photo-container { margin: 20px 0; }
+        .photo { width: 120px; height: 120px; border-radius: 50%; object-fit: cover; border: 4px solid #f4f6f9; box-shadow: 0 5px 15px rgba(0,0,0,0.2); }
+        .name { font-size: 22px; font-weight: 900; text-transform: uppercase; margin-bottom: 5px; }
+        .rank { font-size: 14px; color: #6c757d; font-weight: bold; margin-bottom: 20px; text-transform: uppercase; }
+        .details { text-align: left; padding: 0 20px 20px; font-size: 13px; line-height: 1.8; }
+        .details b { color: #343a40; }
+        .status-badge { display: inline-block; padding: 10px 20px; border-radius: 30px; color: white; font-weight: 900; font-size: 16px; margin-bottom: 20px; letter-spacing: 1px; }
+        .status-active { background: #28a745; box-shadow: 0 0 15px rgba(40,167,69,0.4); }
+        .status-suspended { background: #dc3545; box-shadow: 0 0 15px rgba(220,53,69,0.4); }
+        .status-expired { background: #ffc107; color: #000; box-shadow: 0 0 15px rgba(255,193,7,0.4); }
+        .watermark { font-size: 10px; color: #adb5bd; margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <img src="{{ url_for('static', filename='logo.png') }}" style="height: 50px;" onerror="this.style.display='none'">
+    
+    {% if not w %}
+        <div class="card" style="border-top-color: #dc3545;">
+            <div class="header" style="background: #dc3545;">SECURITY ALERT</div>
+            <div style="padding: 40px 20px;">
+                <h1 style="color: #dc3545; margin:0;">❌ INVALID ID</h1>
+                <p style="font-weight:bold; margin-top:15px;">This ID does not exist in the PBE Master Registry.</p>
+                <p>Card may be counterfeit.</p>
+            </div>
+        </div>
+    {% else %}
+        <div class="card">
+            <div class="header">OFFICIAL PERSONNEL RECORD</div>
+            
+            <div class="photo-container">
+                <img src="{{ w[13] }}" class="photo" alt="Personnel Photo" onerror="this.src='https://via.placeholder.com/150'">
+            </div>
+            
+            <div class="name">{{ w[2] }} {{ w[1] }}</div>
+            <div class="rank">{{ w[8] }} - {{ w[9] }}</div>
+            
+            <div class="status-badge 
+                {% if live_status == 'ACTIVE' %} status-active 
+                {% elif live_status == 'EXPIRED' %} status-expired 
+                {% else %} status-suspended {% endif %}">
+                {{ live_status }}
+            </div>
+            
+            <div class="details">
+                <hr style="border: 0; border-top: 1px solid #eee; margin-bottom:15px;">
+                <div><b>PBE ID NUMBER:</b> <span style="float:right;">{{ w[6] }}</span></div>
+                <div><b>LICENSE NO:</b> <span style="float:right;">{{ w[7] }}</span></div>
+                <div><b>GENDER:</b> <span style="float:right;">{{ w[4] }}</span></div>
+                <div><b>STATION/REGION:</b> <span style="float:right; color:#007bff; font-weight:bold;">{{ w[17] | upper }}</span></div>
+                <hr style="border: 0; border-top: 1px solid #eee; margin:top:15px; margin-bottom:15px;">
+                <div><b>DATE OF ISSUANCE:</b> <span style="float:right;">{{ w[19] }}</span></div>
+                <div><b>DATE OF EXPIRY:</b> <span style="float:right; color: {% if live_status == 'EXPIRED' %}red{% else %}black{% endif %};">{{ w[20] }}</span></div>
+            </div>
+        </div>
+        <div class="watermark">POWER BRIDGE ENGINEERING © 2026<br>VERIFICATION PORTAL</div>
+    {% endif %}
+</body>
+</html>
+"""
+
+# --- 5. THE NUCLEAR RESET BUTTON (HIDDEN VAULT) ---
+@app.route("/admin/nuclear-reset-2026", methods=['GET', 'POST'])
+def nuclear_reset():
+    if request.method == 'POST':
+        pwd = request.form.get('password')
+        if pwd == ADMIN_PASSWORD:
+            conn = get_db(); cur = conn.cursor()
+            cur.execute("DROP TABLE IF EXISTS pbe_registry_2026 CASCADE;")
+            cur.execute("DROP TABLE IF EXISTS pbe_audit_2026 CASCADE;")
+            cur.execute("DROP TABLE IF EXISTS pbe_ip_blacklist CASCADE;")
+            cur.execute("""
+                CREATE TABLE pbe_registry_2026 (
+                    id SERIAL PRIMARY KEY, surname TEXT, firstname TEXT, dob TEXT,
+                    gender TEXT, nationality TEXT,
+                    pbe_uid TEXT UNIQUE, pbe_license TEXT UNIQUE, rank TEXT, department TEXT,
+                    phone_no TEXT, email TEXT, ghana_card_no TEXT, photo_url TEXT, ghana_card_url TEXT,
+                    status TEXT DEFAULT 'PENDING', otp_code TEXT, region TEXT, station TEXT,
+                    issuance_date DATE, expiry_date DATE
+                );
+            """)
+            cur.execute("CREATE TABLE pbe_audit_2026 (id SERIAL PRIMARY KEY, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, action TEXT, actor TEXT, details TEXT, ip_address TEXT, device_info TEXT);")
+            cur.execute("CREATE TABLE pbe_ip_blacklist (id SERIAL PRIMARY KEY, ip_address TEXT UNIQUE, locked_until TIMESTAMP);")
+            conn.commit(); cur.close(); conn.close()
+            
+            log_soul_action("SYSTEM RESET", "General Imperial executed a Ground Zero database wipe and rebuild.")
+            return "<div style='text-align:center; padding:50px; font-family:sans-serif;'><h1>DATABASE PURGED AND REBUILT ✅</h1><p>The system is completely fresh.</p><a href='/admin-dashboard' style='padding:10px; background:#1e293b; color:white; text-decoration:none;'>RETURN TO HQ</a></div>"
+        else:
+            blacklist_ip(request.remote_addr)
+            return "<h1>UNAUTHORIZED LAUNCH CODE</h1>"
+            
+    return """
+    <div style='text-align:center; padding:50px; font-family:sans-serif;'>
+        <h2 style='color:red;'>⚠️ GROUND ZERO RESET ⚠️</h2>
+        <p>This will permanently erase all personnel and rebuild the new database schema.</p>
+        <form method="POST">
+            <input type="password" name="password" placeholder="Master Access Key" required style="padding:10px; width:250px;"><br><br>
+            <button style="padding:10px 20px; background:red; color:white; border:none; font-weight:bold; cursor:pointer;">EXECUTE PURGE</button>
+        </form>
+    </div>
+    """
+
+# --- 6. DASHBOARD & DUAL METRICS ---
 @app.route("/admin-dashboard")
 def admin_dashboard():
     if not session.get('role'): return redirect(url_for('admin_login'))
@@ -145,11 +260,15 @@ def admin_dashboard():
     cur.execute("SELECT COUNT(*) FROM pbe_registry_2026 WHERE expiry_date <= CURRENT_DATE + INTERVAL '30 days' AND surname IS NOT NULL")
     expiry_alerts = cur.fetchone()[0]
 
-    # Calculate 16-Region Metrics
     reg_stats = {}
     for r in GHANA_REGIONS:
         cur.execute("SELECT COUNT(*) FROM pbe_registry_2026 WHERE region = %s AND surname IS NOT NULL", (r,))
         reg_stats[r] = cur.fetchone()[0]
+
+    guild_stats = {}
+    for g in PBE_GUILDS:
+        cur.execute("SELECT COUNT(*) FROM pbe_registry_2026 WHERE department = %s AND surname IS NOT NULL", (g,))
+        guild_stats[g] = cur.fetchone()[0]
 
     dept = request.args.get('dept')
     if dept: cur.execute("SELECT * FROM pbe_registry_2026 WHERE department = %s AND surname IS NOT NULL ORDER BY id DESC", (dept,))
@@ -168,7 +287,7 @@ def admin_dashboard():
         <div class="section-card">
             <div class="section-title">🌍 16-REGION GLOBAL METRIC</div>
             <div class="matrix-grid">
-                {{% for reg, count in stats.items() %}}
+                {{% for reg, count in reg_stats.items() %}}
                 <div class="matrix-item" style="text-align:left;">
                     {{{{reg}}}}: <b style="color:red; float:right;">{{{{count}}}}</b>
                 </div>
@@ -177,11 +296,12 @@ def admin_dashboard():
         </div>
 
         <div class="section-card">
-            <div class="section-title">🛠️ TECHNICAL GUILDS</div>
+            <div class="section-title">🛠️ TECHNICAL GUILDS WORKFORCE METRIC</div>
             <div class="matrix-grid">
-                <a href="/admin-dashboard" class="matrix-item guild-btn {{{{ 'guild-active' if not current_dept }}}}">GLOBAL VIEW</a>
-                {{% for g in guilds %}}
-                <a href="/admin-dashboard?dept={{{{ g }}}}" class="matrix-item guild-btn {{{{ 'guild-active' if current_dept == g }}}}">{{{{ g }}}}</a>
+                {{% for guild, count in guild_stats.items() %}}
+                <div class="matrix-item" style="text-align:left;">
+                    {{{{guild}}}}: <b style="color:red; float:right;">{{{{count}}}}</b>
+                </div>
                 {{% endfor %}}
             </div>
         </div>
@@ -194,20 +314,20 @@ def admin_dashboard():
                     <tbody>
                         {{% for w in workers %}}
                         <tr class="worker-row">
-                            <td>ID: <b>{{{{ w[4] }}}}</b><br>LIC: <small>{{{{ w[5] }}}}</small></td>
+                            <td>ID: <b>{{{{ w[6] }}}}</b><br>LIC: <small>{{{{ w[7] }}}}</small></td>
                             <td>{{{{ w[1] }}}}, {{{{ w[2] }}}}</td>
-                            <td><b>{{{{ w[6] }}}}</b><br><small>{{{{ w[7] }}}}</small></td>
-                            <td><b style="color:{{{{ '#28a745' if w[13]=='ACTIVE' else '#dc3545' }}}};">{{{{ w[13] }}}}</b></td>
+                            <td><b>{{{{ w[8] }}}}</b><br><small>{{{{ w[9] }}}}</small></td>
+                            <td><b style="color:{{{{ '#28a745' if w[15]=='ACTIVE' else '#dc3545' }}}};">{{{{ w[15] }}}}</b></td>
                             <td>
-                                <a href="/admin/print-id/{{{{ w[4] }}}}" class="btn-cmd bg-blue">PRINT</a>
-                                <a href="https://wa.me/{{{{ w[8] }}}}" class="btn-cmd bg-wa" target="_blank">WA</a>
-                                <a href="mailto:{{{{ w[9] }}}}" class="btn-cmd bg-navy">EMAIL</a>
+                                <a href="/admin/print-id/{{{{ w[6] }}}}" class="btn-cmd bg-blue">PRINT</a>
+                                <a href="https://wa.me/{{{{ w[10] }}}}" class="btn-cmd bg-wa" target="_blank">WA</a>
+                                <a href="mailto:{{{{ w[11] }}}}" class="btn-cmd bg-navy">EMAIL</a>
                                 {{% if role == 'ADMIN' %}}
-                                <a href="/admin/approve/{{{{ w[4] }}}}" class="btn-cmd bg-wa">APPROVE</a>
-                                <a href="/admin/suspend/{{{{ w[4] }}}}" class="btn-cmd bg-sus">SUSPEND</a>
-                                <a href="/admin/unsuspend/{{{{ w[4] }}}}" class="btn-cmd bg-blue">UNSUSPEND</a>
-                                <a href="/admin/renew/{{{{ w[4] }}}}" class="btn-cmd bg-gold">RENEW</a>
-                                <a href="/admin/delete/{{{{ w[4] }}}}" class="btn-cmd bg-red" onclick="return confirm('Erase Soul Record Permanently?')">DELETE</a>
+                                <a href="/admin/approve/{{{{ w[6] }}}}" class="btn-cmd bg-wa">APPROVE</a>
+                                <a href="/admin/suspend/{{{{ w[6] }}}}" class="btn-cmd bg-sus">SUSPEND</a>
+                                <a href="/admin/unsuspend/{{{{ w[6] }}}}" class="btn-cmd bg-blue">UNSUSPEND</a>
+                                <a href="/admin/renew/{{{{ w[6] }}}}" class="btn-cmd bg-gold">RENEW</a>
+                                <a href="/admin/delete/{{{{ w[6] }}}}" class="btn-cmd bg-red" onclick="return confirm('Erase Soul Record Permanently?')">DELETE</a>
                                 {{% endif %}}
                             </td>
                         </tr>
@@ -222,9 +342,9 @@ def admin_dashboard():
             {{% if role == 'ADMIN' %}}<a href="/admin/audit" class="fab" title="Audit">📜</a>{{% endif %}}
             <a href="/admin/invite" class="fab" title="Invite">＋</a>
         </div>
-    """), guilds=PBE_GUILDS, workers=workers, current_dept=dept, role=role, alerts=expiry_alerts, stats=reg_stats)
+    """), guilds=PBE_GUILDS, workers=workers, current_dept=dept, role=role, alerts=expiry_alerts, reg_stats=reg_stats, guild_stats=guild_stats)
 
-# --- 6. COMMAND ENDPOINTS (THE 8 BUTTONS) ---
+# --- 7. COMMAND ENDPOINTS (THE 8 BUTTONS) ---
 @app.route("/admin/approve/<uid>")
 def approve_cmd(uid):
     if session.get('role') != 'ADMIN': abort(403)
@@ -260,12 +380,11 @@ def delete_cmd(uid):
     conn.commit(); cur.close(); conn.close(); log_soul_action("DELETE", f"Purged PBE-ID: {uid}")
     return redirect(url_for('admin_dashboard'))
 
-# --- ROBOT MAPPING LOGIC (FLAWLESS CALIBRATION) ---
+# --- 8. ROBOT MAPPING LOGIC (FLAWLESS CALIBRATION) ---
 @app.route("/admin/print-id/<pbe_uid>")
 def print_id(pbe_uid):
     if not session.get('role'): return redirect(url_for('admin_login'))
     
-    # 1. Fetch Personnel Data
     conn = get_db(); cur = conn.cursor()
     cur.execute("SELECT * FROM pbe_registry_2026 WHERE pbe_uid = %s", (pbe_uid,))
     w = cur.fetchone(); cur.close(); conn.close()
@@ -273,59 +392,88 @@ def print_id(pbe_uid):
     
     log_soul_action("PRINT", f"Printed ID for {pbe_uid}")
     
-    # 2. Initialize Canvas (CR-80 Standard ID Size)
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=(3.375*inch, 2.125*inch))
     
-    # 3. Base Template Layer
-    tpl_path = os.path.join(app.root_path, 'static', 'ID TEMPLATE.png') 
+    # Base Template Layer
+    tpl_path = os.path.join(app.root_path, 'static', 'power bridge engineering ID card template.png') 
     if os.path.exists(tpl_path): 
         c.drawImage(tpl_path, 0, 0, width=3.375*inch, height=2.125*inch)
+    else:
+        print("WARNING: Template not found. Check exact spelling!")
     
-    # 4. Image Layering (Cloudinary -> ImageReader)
-    if w[11]: # photo_url index
+    # Main Photo Layer & Ghost Watermark 
+    if w[13]: # photo_url 
         try: 
-            profile_img = ImageReader(w[11]) 
+            profile_img = ImageReader(w[13]) 
             
-            # Sub-Layer A: Ghost Watermark (Bottom Left)
             c.saveState()
             c.setFillAlpha(0.2)
             c.drawImage(profile_img, 0.15*inch, 0.2*inch, width=0.6*inch, height=0.75*inch)
             c.restoreState()
             
-            # Sub-Layer B: Primary Photo (Right Side)
-            c.drawImage(profile_img, 2.3*inch, 0.55*inch, width=0.9*inch, height=1.1*inch)
+            c.drawImage(profile_img, 2.45*inch, 0.45*inch, width=0.75*inch, height=1.0*inch)
         except Exception as e: 
             print(f"Image Mapping Error: {e}")
 
-    # 5. Text Data Layering (Left Aligned)
-    c.setFont("Helvetica-Bold", 8)
+    # Custom Typography Sync (Myriad Pro)
+    try:
+        font_path = os.path.join(app.root_path, 'static', 'MyriadPro-Bold.ttf')
+        pdfmetrics.registerFont(TTFont('MyriadPro', font_path))
+        font_name = 'MyriadPro'
+    except:
+        font_name = 'Helvetica-Bold'
+
+    c.setFont(font_name, 6)
     c.setFillColor(colors.black)
-    c.drawString(0.85*inch, 1.65*inch, f"{w[2]} {w[1]}") # Firstname Surname
+
+    # Text Matrix (Left Column Alignment)
+    val_x = 0.85 * inch
+
+    c.drawString(val_x, 1.70*inch, f"{w[2]}")  # Surname
+    c.drawString(val_x, 1.55*inch, f"{w[1]}")  # Firstname
+    c.drawString(val_x, 1.40*inch, f"{w[4]}")  # Gender
+    c.drawString(val_x, 1.25*inch, f"{w[5]}")  # Nationality
+    c.drawString(val_x, 1.10*inch, f"{w[6]}")  # ID Number
+    c.drawString(val_x, 0.95*inch, f"{w[7]}")  # License
+    c.drawString(val_x, 0.80*inch, f"{w[8]}")  # Rank
+    c.drawString(val_x, 0.65*inch, f"{w[19]}") # Date of Issuance
     
-    c.setFont("Helvetica", 7)
-    c.drawString(0.85*inch, 1.45*inch, f"DEPT: {w[7]}")
-    c.drawString(0.85*inch, 1.30*inch, f"RANK: {w[6]}")
+    # Centered Expiry Date
+    c.drawCentredString(1.68*inch, 0.45*inch, f"{w[20]}") 
     
-    c.setFont("Helvetica-Bold", 7)
-    c.drawString(0.85*inch, 1.10*inch, f"ID: {w[4]}")
-    c.drawString(0.85*inch, 0.95*inch, f"LIC: {w[5]}")
-    
-    # 6. QR Verification Matrix (Bottom Center)
-    qr_code = qr.QrCodeWidget(f"{request.url_root}verify/{w[4]}")
+    # QR Verification Matrix
+    qr_code = qr.QrCodeWidget(f"{request.url_root}verify/{w[6]}")
     bounds = qr_code.getBounds()
-    d = Drawing(40, 40, transform=[40./(bounds[2]-bounds[0]),0,0,40./(bounds[3]-bounds[1]),0,0])
+    d = Drawing(35, 35, transform=[35./(bounds[2]-bounds[0]),0,0,35./(bounds[3]-bounds[1]),0,0])
     d.add(qr_code)
-    d.drawOn(c, 1.3*inch, 0.15*inch)
+    d.drawOn(c, 1.45*inch, 0.08*inch)
     
-    # 7. Compile and Deliver PDF
     c.showPage()
     c.save()
     buffer.seek(0)
     
-    return send_file(buffer, mimetype='application/pdf', as_attachment=False, download_name=f"{w[4]}_ID.pdf")
+    return send_file(buffer, mimetype='application/pdf', as_attachment=False, download_name=f"{w[6]}_ID.pdf")
 
-# --- 7. ISOLATED ENROLLMENT ---
+# --- 9. PUBLIC VERIFICATION PORTAL ---
+@app.route("/verify/<pbe_uid>")
+def verify_id(pbe_uid):
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("SELECT * FROM pbe_registry_2026 WHERE pbe_uid = %s", (pbe_uid,))
+    w = cur.fetchone(); cur.close(); conn.close()
+    
+    if not w:
+        return render_template_string(VERIFY_HTML, w=None)
+    
+    live_status = w[15] 
+    today = datetime.date.today()
+    
+    if w[20] and w[20] < today and live_status == 'ACTIVE':
+        live_status = 'EXPIRED'
+        
+    return render_template_string(VERIFY_HTML, w=w, live_status=live_status)
+
+# --- 10. ISOLATED ENROLLMENT ---
 @app.route("/register", methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
@@ -334,20 +482,26 @@ def register():
         if cur.fetchone():
             fname = request.form.get('firstname', '').upper().replace(" ", "_")
             sname = request.form.get('surname', '').upper().replace(" ", "_")
-            photo = cloudinary.uploader.upload(request.files['photo'], public_id=f"PBE_PP_{fname}_{sname}")
+            
+            # AI BACKGROUND REMOVAL ACTIVATED HERE
+            photo = cloudinary.uploader.upload(
+                request.files['photo'], 
+                public_id=f"PBE_PP_{fname}_{sname}",
+                background_removal="pixelz" 
+            )
+            
             ghana_card = cloudinary.uploader.upload(request.files['ghana_card_img'], public_id=f"PBE_GHANACARD_{fname}_{sname}")
             
             uid, lic = generate_15_char(fname), generate_15_char(sname)
             
-            cur.execute("""UPDATE pbe_registry_2026 SET surname=%s, firstname=%s, dob=%s, pbe_uid=%s, pbe_license=%s,
+            cur.execute("""UPDATE pbe_registry_2026 SET surname=%s, firstname=%s, dob=%s, gender=%s, nationality=%s, pbe_uid=%s, pbe_license=%s,
                         issuance_date=%s, expiry_date=%s, rank=%s, department=%s, photo_url=%s, ghana_card_url=%s, 
                         email=%s, ghana_card_no=%s, status='PENDING', region=%s, station=%s WHERE otp_code=%s""",
-                        (request.form.get('surname').upper(), fname, request.form.get('dob'), uid, lic,
+                        (request.form.get('surname').upper(), fname, request.form.get('dob'), request.form.get('gender'), request.form.get('nationality').upper(), uid, lic,
                         datetime.date.today(), datetime.date.today() + datetime.timedelta(days=730),
                         request.form.get('rank'), request.form.get('department'), photo['secure_url'], ghana_card['secure_url'],
                         request.form.get('email'), request.form.get('ghana_card_no'), request.form.get('region'), request.form.get('station'), otp))
             conn.commit(); cur.close(); conn.close()
-            # PERFECTLY ISOLATED SUCCESS SCREEN
             return "<div style='text-align:center; padding:100px; font-family:sans-serif;'><h1>REGISTRATION SUBMITTED ✅</h1><p style='font-size:20px; font-weight:bold; color:#495057;'>The office is going to respond in 3 working days.</p></div>"
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """
         <div class="section-card" style="max-width:500px; margin: auto;">
@@ -357,6 +511,12 @@ def register():
                 <input name="surname" placeholder="Surname" style="width:100%; padding:12px; margin:5px 0; box-sizing:border-box;" required>
                 <input name="firstname" placeholder="First Name" style="width:100%; padding:12px; margin:5px 0; box-sizing:border-box;" required>
                 <input name="dob" placeholder="Date of Birth (e.g. 01/Jan/1990)" style="width:100%; padding:12px; margin:5px 0; box-sizing:border-box;" required>
+                <select name="gender" style="width:100%; padding:12px; margin:5px 0; box-sizing:border-box;" required>
+                    <option value="">Select Gender</option>
+                    <option value="MALE">MALE</option>
+                    <option value="FEMALE">FEMALE</option>
+                </select>
+                <input name="nationality" placeholder="Nationality" style="width:100%; padding:12px; margin:5px 0; box-sizing:border-box;" required>
                 <input name="email" type="email" placeholder="Email Address" style="width:100%; padding:12px; margin:5px 0; box-sizing:border-box;" required>
                 <input name="ghana_card_no" placeholder="Ghana Card ID Number" style="width:100%; padding:12px; margin:5px 0; box-sizing:border-box;" required>
                 <select name="region" style="width:100%; padding:12px; margin:5px 0; box-sizing:border-box;">
@@ -375,7 +535,7 @@ def register():
         </div>
     """), guilds=PBE_GUILDS, regions=GHANA_REGIONS)
 
-# --- 8. SECURITY, INVITE & AUDIT ---
+# --- 11. SECURITY, INVITE & AUDIT ---
 @app.route("/pbe-vanguard-hq-2026", methods=['GET', 'POST'])
 def admin_login():
     ip = request.remote_addr
@@ -462,7 +622,7 @@ def view_alerts():
             <div class="section-title">🔔 RENEWAL ALERTS</div>
             {% for a in alerts %}
             <div style="padding:10px; border-bottom:1px solid #eee; font-size:13px;">
-                <b>{{ a[1] }} {{ a[2] }}</b> (ID: {{ a[4] }}) - <span style="color:red;">Expires: {{ a[18] }}</span>
+                <b>{{ a[1] }} {{ a[2] }}</b> (ID: {{ a[6] }}) - <span style="color:red;">Expires: {{ a[20] }}</span>
             </div>
             {% endfor %}
             {% if not alerts %}<p>No upcoming renewals.</p>{% endif %}
