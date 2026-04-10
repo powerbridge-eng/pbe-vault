@@ -83,11 +83,13 @@ def blacklist_ip(ip):
     cur.execute("INSERT INTO pbe_ip_blacklist (ip_address, locked_until) VALUES (%s, %s) ON CONFLICT (ip_address) DO UPDATE SET locked_until = %s", (ip, lock_time, lock_time))
     conn.commit(); cur.close(); conn.close()
 
-def generate_15_char(name):
-    clean = re.sub(r'[^A-Z]', '', name.upper())
-    part = clean[:6]
-    needed = 15 - len(part)
-    return f"{part}{''.join(random.choices(string.digits + string.ascii_uppercase, k=needed))}"
+def generate_pbe_id():
+    digits = ''.join(random.choices(string.digits, k=8))
+    return f"PBE ID {digits}"
+
+def generate_pbe_lic():
+    digits = ''.join(random.choices(string.digits, k=7))
+    return f"PBE LIC {digits}"
 
 # --- 3. THE PBE WORLD MATRIX ---
 PBE_GUILDS = [
@@ -233,7 +235,6 @@ def admin_dashboard():
     cur.execute("SELECT COUNT(*) FROM pbe_registry_2026 WHERE expiry_date <= CURRENT_DATE + INTERVAL '30 days' AND surname IS NOT NULL")
     expiry_alerts = cur.fetchone()[0]
 
-    # Calculate 16-Region Metrics
     reg_stats = {}
     for r in GHANA_REGIONS:
         cur.execute("SELECT COUNT(*) FROM pbe_registry_2026 WHERE region = %s AND surname IS NOT NULL", (r,))
@@ -370,16 +371,22 @@ def print_id(pbe_uid):
     c = canvas.Canvas(buffer, pagesize=(3.375*inch, 2.125*inch))
     
     # Base Template Layer (EXACT FILE NAME LOCKED IN)
-    tpl_path = os.path.join(app.root_path, 'static', 'power bridge engineering ID card template.png') 
+    tpl_path = os.path.join(app.root_path, 'static', 'template.png') 
     if os.path.exists(tpl_path): 
         c.drawImage(tpl_path, 0, 0, width=3.375*inch, height=2.125*inch)
     else:
-        print("WARNING: Template not found. Check exact spelling and uppercase/lowercase letters!")
+        print(f"CRITICAL WARNING: Template not found at {tpl_path}. Check GitHub!")
     
-    # Main Photo Layer & Ghost Watermark 
-    if w[13]: # photo_url 
+    # Main Photo Layer & Instant AI Background Stripper
+    photo_url = w[13]
+    if photo_url: 
+        # INJECT THE ON-THE-FLY AI AND FORCE TRANSPARENT PNG FORMAT
+        if "cloudinary" in photo_url and "/upload/" in photo_url:
+            parts = photo_url.split('/upload/')
+            photo_url = f"{parts[0]}/upload/e_background_removal/f_png/{parts[1]}"
+
         try: 
-            profile_img = ImageReader(w[13]) 
+            profile_img = ImageReader(photo_url) 
             
             # Sub-Layer A: Ghost Watermark (Bottom Left)
             c.saveState()
@@ -418,7 +425,7 @@ def print_id(pbe_uid):
     # Centered Expiry Date (Bottom Center)
     c.drawCentredString(1.68*inch, 0.45*inch, f"{w[20]}") 
     
-    # QR Verification Matrix (Bottom Center, replacing barcode)
+    # QR Verification Matrix (Bottom Center)
     qr_code = qr.QrCodeWidget(f"{request.url_root}verify/{w[6]}")
     bounds = qr_code.getBounds()
     d = Drawing(35, 35, transform=[35./(bounds[2]-bounds[0]),0,0,35./(bounds[3]-bounds[1]),0,0])
@@ -459,16 +466,15 @@ def register():
             fname = request.form.get('firstname', '').upper().replace(" ", "_")
             sname = request.form.get('surname', '').upper().replace(" ", "_")
             
-            # --- AI BACKGROUND REMOVAL ACTIVATED HERE ---
             photo = cloudinary.uploader.upload(
                 request.files['photo'], 
-                public_id=f"PBE_PP_{fname}_{sname}",
-                background_removal="pixelz" 
+                public_id=f"PBE_PP_{fname}_{sname}"
             )
             
             ghana_card = cloudinary.uploader.upload(request.files['ghana_card_img'], public_id=f"PBE_GHANACARD_{fname}_{sname}")
             
-            uid, lic = generate_15_char(fname), generate_15_char(sname)
+            uid = generate_pbe_id()
+            lic = generate_pbe_lic()
             
             cur.execute("""UPDATE pbe_registry_2026 SET surname=%s, firstname=%s, dob=%s, gender=%s, nationality=%s, pbe_uid=%s, pbe_license=%s,
                         issuance_date=%s, expiry_date=%s, rank=%s, department=%s, photo_url=%s, ghana_card_url=%s, 
@@ -478,7 +484,6 @@ def register():
                         request.form.get('rank'), request.form.get('department'), photo['secure_url'], ghana_card['secure_url'],
                         request.form.get('email'), request.form.get('ghana_card_no'), request.form.get('region'), request.form.get('station'), otp))
             conn.commit(); cur.close(); conn.close()
-            # PERFECTLY ISOLATED SUCCESS SCREEN WITH YOUR EXACT TEXT
             return "<div style='text-align:center; padding:100px; font-family:sans-serif;'><h1 style='color:#28a745;'>Submit successful ✅</h1><p style='font-size:20px; font-weight:bold; color:#495057;'>The office will respond within 3 working days.</p></div>"
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """
         <div class="section-card" style="max-width:500px; margin: auto;">
