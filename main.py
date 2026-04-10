@@ -478,7 +478,8 @@ def register():
                         request.form.get('rank'), request.form.get('department'), photo['secure_url'], ghana_card['secure_url'],
                         request.form.get('email'), request.form.get('ghana_card_no'), request.form.get('region'), request.form.get('station'), otp))
             conn.commit(); cur.close(); conn.close()
-            return "<div style='text-align:center; padding:100px; font-family:sans-serif;'><h1>REGISTRATION SUBMITTED ✅</h1><p style='font-size:20px; font-weight:bold; color:#495057;'>The office is going to respond in 3 working days.</p></div>"
+            # PERFECTLY ISOLATED SUCCESS SCREEN WITH YOUR EXACT TEXT
+            return "<div style='text-align:center; padding:100px; font-family:sans-serif;'><h1 style='color:#28a745;'>Submit successful ✅</h1><p style='font-size:20px; font-weight:bold; color:#495057;'>The office will respond within 3 working days.</p></div>"
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """
         <div class="section-card" style="max-width:500px; margin: auto;">
             <h3>ENROLLMENT FORM</h3>
