@@ -105,12 +105,19 @@ def generate_pbe_lic():
     digits = ''.join(random.choices(string.digits, k=7))
     return f"PBE LIC {digits}"
 
-# --- 3. THE PBE WORLD MATRIX ---
+# --- 3. THE PBE WORLD MATRIX & RANK HIERARCHY ---
 PBE_GUILDS = [
     "ELECTRICAL ENGINEERING", "SOLAR & ENERGY", "PLUMBING & HYDRAULICS", 
     "MASONRY & CONSTRUCTION", "MECHANICAL & AUTO", "PBE TV", 
     "CCTV & SECURITY", "ICT & SOFTWARE", "HVAC & COOLING", "GENERAL TECHNICAL"
 ]
+
+PBE_RANKS = [
+    "Supreme Commander / CEO", "General Manager", "Chief Engineer", 
+    "Project Commander", "Warrant Supervisor", "Senior Master Technician", 
+    "Squad Supervisor", "Lead Technician", "Field Technician", "Engineering Recruit"
+]
+
 GHANA_REGIONS = ["Greater Accra", "Ashanti", "Western", "Central", "Eastern", "Volta", "Northern", "Upper East", "Upper West", "Bono", "Bono East", "Ahafo", "Savannah", "North East", "Oti", "Western North"]
 
 # --- 4A. EXECUTIVE UI DESIGN ---
@@ -133,8 +140,6 @@ BASE_HTML = """
         .section-title { font-size: 13px; font-weight: 800; color: #6c757d; text-transform: uppercase; margin-bottom: 15px; border-left: 4px solid var(--navy); padding-left: 10px; }
         .matrix-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
         .matrix-item { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 12px; text-align: center; font-size: 11px; font-weight: bold; color: var(--navy); }
-        .guild-btn { text-decoration: none; display: block; }
-        .guild-active { background: var(--navy); color: var(--gold); border-color: var(--gold); }
         .registry-table { width: 100%; border-collapse: collapse; font-size: 13px; }
         .registry-table th { text-align: left; padding: 12px; border-bottom: 2px solid #dee2e6; }
         .registry-table td { padding: 15px 12px; border-bottom: 1px solid #f1f3f5; }
@@ -262,9 +267,7 @@ def admin_dashboard():
         cur.execute("SELECT COUNT(*) FROM pbe_registry_2026 WHERE department = %s AND surname IS NOT NULL", (g,))
         guild_stats[g] = cur.fetchone()[0]
 
-    dept = request.args.get('dept')
-    if dept: cur.execute("SELECT * FROM pbe_registry_2026 WHERE department = %s AND surname IS NOT NULL ORDER BY id DESC", (dept,))
-    else: cur.execute("SELECT * FROM pbe_registry_2026 WHERE surname IS NOT NULL ORDER BY id DESC")
+    cur.execute("SELECT * FROM pbe_registry_2026 WHERE surname IS NOT NULL ORDER BY id DESC")
     workers = cur.fetchall(); cur.close(); conn.close()
 
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", f"""
@@ -288,17 +291,6 @@ def admin_dashboard():
         </div>
 
         <div class="section-card">
-            <div class="section-title">🛠️ TECHNICAL GUILDS WORKFORCE METRIC</div>
-            <div class="matrix-grid">
-                {{% for guild, count in guild_stats.items() %}}
-                <div class="matrix-item" style="text-align:left;">
-                    {{{{guild}}}}: <b style="color:red; float:right;">{{{{count}}}}</b>
-                </div>
-                {{% endfor %}}
-            </div>
-        </div>
-
-        <div class="section-card">
             <div class="section-title">👥 PERSONNEL REGISTRY CONTROL</div>
             <div style="overflow-x:auto;">
                 <table class="registry-table">
@@ -308,15 +300,14 @@ def admin_dashboard():
                         <tr class="worker-row">
                             <td>ID: <b>{{{{ w[6] }}}}</b><br>LIC: <small>{{{{ w[7] }}}}</small></td>
                             <td>{{{{ w[1] }}}}, {{{{ w[2] }}}}</td>
-                            <td><b>{{{{ w[8] }}}}</b><br><small>{{{{ w[9] }}}}</small></td>
+                            <td><b style="color:red;">{{{{ w[8] }}}}</b><br><small>{{{{ w[9] }}}}</small></td>
                             <td><b style="color:{{{{ '#28a745' if w[15]=='ACTIVE' else '#fd7e14' if w[15]=='DECLINED' else '#dc3545' }}}};">{{{{ w[15] }}}}</b></td>
                             <td>
                                 <a href="{{{{ url_for('print_id', pbe_uid=w[6]) }}}}" class="btn-cmd bg-blue">PRINT</a>
+                                <a href="{{{{ url_for('review_cmd', uid=w[6]) }}}}" class="btn-cmd bg-navy">REVIEW DOSSIER</a>
                                 <a href="https://wa.me/{{{{ w[10]|replace('+', '')|replace(' ', '') }}}}" class="btn-cmd bg-wa" target="_blank">WA</a>
-                                <a href="mailto:{{{{ w[11] }}}}" class="btn-cmd bg-navy">EMAIL</a>
-                                <a href="{{{{ url_for('approve_cmd', uid=w[6]) }}}}" class="btn-cmd bg-wa">APPROVE</a>
-                                <a href="{{{{ url_for('decline_cmd', uid=w[6]) }}}}" class="btn-cmd bg-orange">DECLINE</a>
                                 {{% if role == 'ADMIN' %}}
+                                <a href="{{{{ url_for('promote_cmd', uid=w[6]) }}}}" class="btn-cmd bg-gold">PROMOTE</a>
                                 <a href="{{{{ url_for('suspend_cmd', uid=w[6]) }}}}" class="btn-cmd bg-sus">SUSPEND</a>
                                 <a href="{{{{ url_for('unsuspend_cmd', uid=w[6]) }}}}" class="btn-cmd bg-blue">UNSUSPEND</a>
                                 <a href="{{{{ url_for('renew_cmd', uid=w[6]) }}}}" class="btn-cmd bg-gold">RENEW</a>
@@ -335,9 +326,87 @@ def admin_dashboard():
             {{% if role == 'ADMIN' %}}<a href="/admin/audit" class="fab" title="Audit">📜</a>{{% endif %}}
             <a href="/admin/invite" class="fab" title="Invite">＋</a>
         </div>
-    """), guilds=PBE_GUILDS, workers=workers, current_dept=dept, role=role, alerts=expiry_alerts, reg_stats=reg_stats, guild_stats=guild_stats)
+    """), guilds=PBE_GUILDS, workers=workers, role=role, alerts=expiry_alerts, reg_stats=reg_stats, guild_stats=guild_stats)
 
-# --- 6. COMMAND ENDPOINTS (THE 9 BUTTONS) ---
+# --- 6. COMMAND ENDPOINTS (THE MATRIX BUTTONS) ---
+@app.route("/admin/review/<uid>")
+def review_cmd(uid):
+    if not session.get('role'): abort(403)
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("SELECT * FROM pbe_registry_2026 WHERE pbe_uid = %s", (uid,))
+    w = cur.fetchone(); cur.close(); conn.close()
+    if not w: abort(404)
+    
+    # Pre-warm Cloudinary Cache to prevent Print timeouts
+    photo_url = w[13]
+    if photo_url and "cloudinary" in photo_url and "/upload/" in photo_url:
+        parts = photo_url.split('/upload/')
+        photo_url = f"{parts[0]}/upload/e_background_removal/f_png/{parts[1]}"
+        
+    DOSSIER_HTML = """
+    <div class="section-card" style="max-width:800px; margin:auto;">
+        <h3>📋 PERSONNEL REVIEW DOSSIER</h3>
+        <div style="display:flex; gap:20px; flex-wrap:wrap; margin-bottom:20px;">
+            <div style="flex:1; min-width:250px;">
+                <p style="font-size:12px; font-weight:bold;">PASSPORT PHOTO (Pre-processing AI Cache...):</p>
+                <img src="{{ photo_url }}" style="width:100%; max-width:250px; border:2px solid #dee2e6; border-radius:8px;">
+            </div>
+            <div style="flex:1; min-width:250px;">
+                <p style="font-size:12px; font-weight:bold;">GHANA CARD VERIFICATION:</p>
+                <img src="{{ w[14] }}" style="width:100%; max-width:350px; border:2px solid #dee2e6; border-radius:8px;">
+            </div>
+        </div>
+        <table class="registry-table" style="margin-bottom:20px; border:1px solid #dee2e6; border-radius:8px; overflow:hidden;">
+            <tr style="background:#f8f9fa;"><th>PBE ID</th><td><b>{{ w[6] }}</b></td><th>LICENSE</th><td><b>{{ w[7] }}</b></td></tr>
+            <tr><th>FULL NAME</th><td>{{ w[1] }} {{ w[2] }}</td><th>DOB</th><td>{{ w[3] }}</td></tr>
+            <tr style="background:#f8f9fa;"><th>GENDER</th><td>{{ w[4] }}</td><th>NATIONALITY</th><td>{{ w[5] }}</td></tr>
+            <tr><th>PHONE</th><td>{{ w[10] }}</td><th>EMAIL</th><td>{{ w[11] }}</td></tr>
+            <tr style="background:#f8f9fa;"><th>GHANA CARD NO</th><td>{{ w[12] }}</td><th>REGION / STATION</th><td>{{ w[17] }} / {{ w[18] }}</td></tr>
+            <tr><th>GUILD / DEPT</th><td>{{ w[9] }}</td><th>RANK</th><td><b style="color:red;">{{ w[8] }}</b></td></tr>
+        </table>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <a href="{{ url_for('approve_cmd', uid=w[6]) }}" class="btn-cmd bg-wa" style="flex:1; padding:15px; font-size:14px;">✅ APPROVE </a>
+            <a href="{{ url_for('decline_cmd', uid=w[6]) }}" class="btn-cmd bg-orange" style="flex:1; padding:15px; font-size:14px;">❌ DECLINE & SMS</a>
+            <a href="/admin-dashboard" class="btn-cmd bg-sus" style="padding:15px; font-size:14px;">BACK TO HQ</a>
+        </div>
+    </div>
+    """
+    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", DOSSIER_HTML), w=w, photo_url=photo_url)
+
+@app.route("/admin/promote/<uid>", methods=['GET', 'POST'])
+def promote_cmd(uid):
+    if session.get('role') != 'ADMIN': abort(403) # THE IRON DOOR
+    conn = get_db(); cur = conn.cursor()
+    if request.method == 'POST':
+        new_rank = request.form.get('new_rank')
+        cur.execute("UPDATE pbe_registry_2026 SET rank = %s WHERE pbe_uid = %s", (new_rank, uid))
+        conn.commit(); cur.close(); conn.close()
+        log_soul_action("PROMOTE", f"Elevated {uid} to {new_rank}")
+        return redirect(url_for('admin_dashboard'))
+        
+    cur.execute("SELECT * FROM pbe_registry_2026 WHERE pbe_uid = %s", (uid,))
+    w = cur.fetchone(); cur.close(); conn.close()
+    
+    PROMOTE_HTML = """
+    <div class="section-card" style="max-width:500px; margin:auto; text-align:center;">
+        <h3 style="color:red;">🎖️ SUPREME COMMAND PROMOTION</h3>
+        <div style="margin:20px 0; padding:15px; background:#f8f9fa; border-radius:8px;">
+            <p style="margin:5px 0;"><b>Personnel:</b> {{ w[1] }} {{ w[2] }}</p>
+            <p style="margin:5px 0;"><b>Current Rank:</b> <span style="color:red; font-weight:bold;">{{ w[8] }}</span></p>
+        </div>
+        <form method="POST">
+            <select name="new_rank" style="width:100%; padding:15px; margin-bottom:15px; border-radius:8px; border:1px solid #dee2e6;" required>
+                {% for r in ranks %}
+                <option value="{{ r }}" {% if r == w[8] %}selected{% endif %}>{{ r }}</option>
+                {% endfor %}
+            </select>
+            <button class="btn-cmd bg-navy" style="width:100%; padding:15px; font-size:14px;">CONFIRM RANK ELEVATION</button>
+        </form>
+        <a href="/admin-dashboard" class="btn-cmd bg-sus" style="display:block; padding:10px; margin-top:10px;">CANCEL</a>
+    </div>
+    """
+    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", PROMOTE_HTML), w=w, ranks=PBE_RANKS)
+
 @app.route("/admin/approve/<uid>")
 def approve_cmd(uid):
     if not session.get('role'): abort(403)
@@ -501,12 +570,15 @@ def register():
             uid = generate_pbe_id()
             lic = generate_pbe_lic()
             
+            # Auto-assign the default recruit rank
+            assigned_rank = "Engineering Recruit"
+            
             cur.execute("""UPDATE pbe_registry_2026 SET surname=%s, firstname=%s, dob=%s, gender=%s, nationality=%s, pbe_uid=%s, pbe_license=%s,
                         issuance_date=%s, expiry_date=%s, rank=%s, department=%s, photo_url=%s, ghana_card_url=%s, 
                         email=%s, ghana_card_no=%s, status='PENDING', region=%s, station=%s WHERE otp_code=%s""",
                         (request.form.get('surname').upper(), fname, request.form.get('dob'), request.form.get('gender'), request.form.get('nationality').upper(), uid, lic,
                         datetime.date.today(), datetime.date.today() + datetime.timedelta(days=730),
-                        request.form.get('rank'), request.form.get('department'), photo['secure_url'], ghana_card['secure_url'],
+                        assigned_rank, request.form.get('department'), photo['secure_url'], ghana_card['secure_url'],
                         request.form.get('email'), request.form.get('ghana_card_no'), request.form.get('region'), request.form.get('station'), otp))
             conn.commit(); cur.close(); conn.close()
             return "<div style='text-align:center; padding:100px; font-family:sans-serif;'><h1 style='color:#28a745;'>Submit successful ✅</h1><p style='font-size:20px; font-weight:bold; color:#495057;'>The office will respond within 3 working days.</p></div>"
@@ -532,7 +604,6 @@ def register():
                 <select name="department" style="width:100%; padding:12px; margin:5px 0; box-sizing:border-box;">
                     {% for g in guilds %}<option value="{{g}}">{{g}}</option>{% endfor %}
                 </select>
-                <input name="rank" placeholder="Job Title" style="width:100%; padding:12px; margin:5px 0; box-sizing:border-box;" required>
                 <p style="font-size:12px; margin-bottom:2px; font-weight:bold;">Passport Photo:</p>
                 <input type="file" name="photo" style="margin-bottom:10px;" required>
                 <p style="font-size:12px; margin-bottom:2px; font-weight:bold;">Ghana Card Image:</p>
