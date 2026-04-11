@@ -330,13 +330,10 @@ def admin_dashboard():
                                 <a href="{{{{ url_for('review_cmd', uid=w[6]) }}}}" class="btn-cmd bg-navy">REVIEW DOSSIER</a>
                                 <a href="mailto:{{{{ w[11] }}}}" class="btn-cmd bg-navy">EMAIL</a>
                                 <a href="https://wa.me/{{{{ w[10]|replace('+', '')|replace(' ', '') }}}}" class="btn-cmd bg-wa" target="_blank">WA</a>
-                                <a href="{{{{ url_for('approve_cmd', uid=w[6]) }}}}" class="btn-cmd bg-wa">APPROVE</a>
-                                <a href="{{{{ url_for('decline_cmd', uid=w[6]) }}}}" class="btn-cmd bg-orange">DECLINE</a>
                                 {{% if role == 'ADMIN' %}}
                                 <a href="{{{{ url_for('promote_cmd', uid=w[6]) }}}}" class="btn-cmd bg-gold">PROMOTE</a>
                                 <a href="{{{{ url_for('suspend_cmd', uid=w[6]) }}}}" class="btn-cmd bg-sus">SUSPEND</a>
                                 <a href="{{{{ url_for('unsuspend_cmd', uid=w[6]) }}}}" class="btn-cmd bg-blue">UNSUSPEND</a>
-                                <a href="{{{{ url_for('renew_cmd', uid=w[6]) }}}}" class="btn-cmd bg-gold">RENEW</a>
                                 <a href="{{{{ url_for('delete_cmd', uid=w[6]) }}}}" class="btn-cmd bg-red" onclick="return confirm('Erase Soul Record Permanently?')">DELETE</a>
                                 {{% endif %}}
                             </td>
@@ -393,6 +390,9 @@ def review_cmd(uid):
         <div style="display:flex; gap:10px; flex-wrap:wrap;">
             <a href="{{ url_for('approve_cmd', uid=w[6]) }}" class="btn-cmd bg-wa" style="flex:1; padding:15px; font-size:14px;">✅ APPROVE </a>
             <a href="{{ url_for('decline_cmd', uid=w[6]) }}" class="btn-cmd bg-orange" style="flex:1; padding:15px; font-size:14px;">❌ DECLINE & SMS</a>
+            {% if session.get('role') == 'ADMIN' %}
+            <a href="{{ url_for('renew_cmd', uid=w[6]) }}" class="btn-cmd bg-gold" style="flex:1; padding:15px; font-size:14px;">🔄 RENEW ID</a>
+            {% endif %}
             <a href="/admin-dashboard" class="btn-cmd bg-sus" style="padding:15px; font-size:14px;">BACK TO HQ</a>
         </div>
     </div>
@@ -491,83 +491,100 @@ def delete_cmd(uid):
 def print_id(pbe_uid):
     if not session.get('role'): return redirect(url_for('admin_login'))
     
-    try:
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("SELECT * FROM pbe_registry_2026 WHERE pbe_uid = %s", (pbe_uid,))
-        w = cur.fetchone(); cur.close(); conn.close()
-        if not w: abort(404)
-        
-        log_soul_action("PRINT", f"Printed ID for {pbe_uid}")
-        
-        buffer = BytesIO()
-        c = canvas.Canvas(buffer, pagesize=(3.375*inch, 2.125*inch))
-        
-        # EXACT FILENAME FIX FOR GITHUB DEPLOYMENT
-        tpl_path = os.path.join(app.root_path, 'static', 'POWER BRIDGE ENGINEERING ID CARD TEMPLATE.png') 
-        if os.path.exists(tpl_path): 
-            try:
-                c.drawImage(tpl_path, 0, 0, width=3.375*inch, height=2.125*inch)
-            except Exception as e:
-                print(f"TEMPLATE CRASH: {e}")
-        else:
-            print(f"CRITICAL WARNING: Template not found at {tpl_path}. Check GitHub!")
-        
-        # EXACT BACKGROUND REMOVAL LOGIC RESTORED 
-        photo_url = w[13]
-        if photo_url: 
-            if "cloudinary" in photo_url and "/upload/" in photo_url:
-                parts = photo_url.split('/upload/')
-                photo_url = f"{parts[0]}/upload/e_background_removal/f_png/{parts[1]}"
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("SELECT * FROM pbe_registry_2026 WHERE pbe_uid = %s", (pbe_uid,))
+    w = cur.fetchone(); cur.close(); conn.close()
+    if not w: abort(404)
+    
+    log_soul_action("PRINT", f"Printed ID for {pbe_uid}")
+    
+    buffer = BytesIO()
+    c = canvas.Canvas(buffer, pagesize=(3.375*inch, 2.125*inch))
+    
+    # -------------------------------------------------------------------
+    # FIX 1: DUAL-SCANNER FOR TEMPLATE (Works locally and on GitHub)
+    # -------------------------------------------------------------------
+    tpl_path_1 = os.path.join(app.root_path, 'static', 'POWER BRIDGE ENGINEERING ID CARD TEMPLATE.png') 
+    tpl_path_2 = os.path.join(app.root_path, 'static', 'template.png')
+    
+    if os.path.exists(tpl_path_1): 
+        c.drawImage(tpl_path_1, 0, 0, width=3.375*inch, height=2.125*inch)
+    elif os.path.exists(tpl_path_2):
+        c.drawImage(tpl_path_2, 0, 0, width=3.375*inch, height=2.125*inch)
+    else:
+        print(f"CRITICAL WARNING: Template not found at either path! Check GitHub.")
+    
+    # -------------------------------------------------------------------
+    # FIX 2: ARMORED BYTE FETCHER (Stops Server Crashes / 502 Errors)
+    # -------------------------------------------------------------------
+    photo_url = w[13]
+    profile_img = None
+    
+    if photo_url: 
+        bg_removed_url = photo_url
+        if "cloudinary" in photo_url and "/upload/" in photo_url:
+            parts = photo_url.split('/upload/')
+            bg_removed_url = f"{parts[0]}/upload/e_background_removal/f_png/{parts[1]}"
 
-            try: 
-                profile_img = ImageReader(photo_url) 
-                c.saveState()
-                c.setFillAlpha(0.2)
-                c.drawImage(profile_img, 0.15*inch, 0.2*inch, width=0.6*inch, height=0.75*inch)
-                c.restoreState()
-                c.drawImage(profile_img, 2.45*inch, 0.45*inch, width=0.75*inch, height=1.0*inch)
-            except Exception as e: 
-                print(f"Image Mapping Error: {e}")
+        try: 
+            # Step A: Securely fetch Cloudinary AI bytes with 5-second timeout
+            req = requests.get(bg_removed_url, timeout=5)
+            # Step B: Ensure it actually gave us a picture, not an HTML timeout page!
+            if req.status_code == 200 and 'image' in req.headers.get('Content-Type', '').lower():
+                profile_img = ImageReader(BytesIO(req.content))
+            else:
+                # Step C: Instant Fallback to original image if AI is busy
+                print("Cloudinary AI blocked/busy. Engaging fallback to raw photo.")
+                req2 = requests.get(photo_url, timeout=5)
+                if req2.status_code == 200 and 'image' in req2.headers.get('Content-Type', '').lower():
+                    profile_img = ImageReader(BytesIO(req2.content))
+        except Exception as e: 
+            print(f"Image Fetch Firewall Engaged: {e}")
 
+    # Only draw the picture if the server successfully downloaded an image file
+    if profile_img:
         try:
-            font_path = os.path.join(app.root_path, 'static', 'MyriadPro-Bold.ttf')
-            pdfmetrics.registerFont(TTFont('MyriadPro', font_path))
-            font_name = 'MyriadPro'
-        except:
-            font_name = 'Helvetica-Bold' 
+            c.saveState()
+            c.setFillAlpha(0.2)
+            c.drawImage(profile_img, 0.15*inch, 0.2*inch, width=0.6*inch, height=0.75*inch)
+            c.restoreState()
+            c.drawImage(profile_img, 2.45*inch, 0.45*inch, width=0.75*inch, height=1.0*inch)
+        except Exception as e:
+            print(f"ReportLab Draw Error: {e}")
 
-        c.setFont(font_name, 6)
-        c.setFillColor(colors.black)
+    try:
+        font_path = os.path.join(app.root_path, 'static', 'MyriadPro-Bold.ttf')
+        pdfmetrics.registerFont(TTFont('MyriadPro', font_path))
+        font_name = 'MyriadPro'
+    except:
+        font_name = 'Helvetica-Bold' 
 
-        val_x = 0.85 * inch
-        c.drawString(val_x, 1.70*inch, f"{w[2]}")  
-        c.drawString(val_x, 1.55*inch, f"{w[1]}")  
-        c.drawString(val_x, 1.40*inch, f"{w[4]}")  
-        c.drawString(val_x, 1.25*inch, f"{w[5]}")  
-        c.drawString(val_x, 1.10*inch, f"{w[6]}")  
-        c.drawString(val_x, 0.95*inch, f"{w[7]}")  
-        c.drawString(val_x, 0.80*inch, f"{w[8]}")  
-        c.drawString(val_x, 0.65*inch, f"{w[19]}") 
-        c.drawCentredString(1.68*inch, 0.45*inch, f"{w[20]}") 
-        
-        safe_uid = quote(w[6])
-        qr_code = qr.QrCodeWidget(f"{request.url_root}verify/{safe_uid}")
-        bounds = qr_code.getBounds()
-        d = Drawing(35, 35, transform=[35./(bounds[2]-bounds[0]),0,0,35./(bounds[3]-bounds[1]),0,0])
-        d.add(qr_code)
-        d.drawOn(c, 1.45*inch, 0.08*inch)
-        
-        c.showPage()
-        c.save()
-        buffer.seek(0)
-        
-        # Download_name tag removed to ensure it doesn't crash older Flask versions
-        return send_file(buffer, mimetype='application/pdf')
-        
-    except Exception as core_error:
-        import traceback
-        err_text = traceback.format_exc()
-        return f"<div style='padding:40px; font-family:sans-serif; background:#111; color:#fff; height:100vh;'><h2 style='color:red;'>🚨 SYSTEM CRASH DETECTED</h2><p>General, the blind 500 error is defeated. Copy the red text below and send it to me immediately so I can destroy the bug:</p><pre style='background:#222; color:#ff4444; padding:20px; border-radius:8px; overflow-x:auto; font-size:14px;'>{err_text}</pre><button onclick='window.history.back()' style='padding:10px 20px; font-weight:bold; cursor:pointer;'>BACK TO HQ</button></div>", 500
+    c.setFont(font_name, 6)
+    c.setFillColor(colors.black)
+
+    val_x = 0.85 * inch
+    c.drawString(val_x, 1.70*inch, f"{w[2]}")  
+    c.drawString(val_x, 1.55*inch, f"{w[1]}")  
+    c.drawString(val_x, 1.40*inch, f"{w[4]}")  
+    c.drawString(val_x, 1.25*inch, f"{w[5]}")  
+    c.drawString(val_x, 1.10*inch, f"{w[6]}")  
+    c.drawString(val_x, 0.95*inch, f"{w[7]}")  
+    c.drawString(val_x, 0.80*inch, f"{w[8]}")  
+    c.drawString(val_x, 0.65*inch, f"{w[19]}") 
+    c.drawCentredString(1.68*inch, 0.45*inch, f"{w[20]}") 
+    
+    safe_uid = quote(w[6])
+    qr_code = qr.QrCodeWidget(f"{request.url_root}verify/{safe_uid}")
+    bounds = qr_code.getBounds()
+    d = Drawing(35, 35, transform=[35./(bounds[2]-bounds[0]),0,0,35./(bounds[3]-bounds[1]),0,0])
+    d.add(qr_code)
+    d.drawOn(c, 1.45*inch, 0.08*inch)
+    
+    c.showPage()
+    c.save()
+    buffer.seek(0)
+    
+    return send_file(buffer, mimetype='application/pdf', as_attachment=False, download_name=f"{w[6]}_ID.pdf")
 
 # --- 8. PUBLIC VERIFICATION PORTAL ---
 @app.route("/verify/<pbe_uid>")
