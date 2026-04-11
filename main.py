@@ -328,6 +328,7 @@ def admin_dashboard():
                             <td>
                                 <a href="{{{{ url_for('print_id', pbe_uid=w[6]) }}}}" class="btn-cmd bg-blue">PRINT</a>
                                 <a href="{{{{ url_for('review_cmd', uid=w[6]) }}}}" class="btn-cmd bg-navy">REVIEW DOSSIER</a>
+                                <a href="mailto:{{{{ w[11] }}}}" class="btn-cmd bg-navy">EMAIL</a>
                                 <a href="https://wa.me/{{{{ w[10]|replace('+', '')|replace(' ', '') }}}}" class="btn-cmd bg-wa" target="_blank">WA</a>
                                 {{% if role == 'ADMIN' %}}
                                 <a href="{{{{ url_for('promote_cmd', uid=w[6]) }}}}" class="btn-cmd bg-gold">PROMOTE</a>
@@ -498,43 +499,27 @@ def print_id(pbe_uid):
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=(3.375*inch, 2.125*inch))
     
-    tpl_path = os.path.join(app.root_path, 'static', 'template.png') 
+    # EXACT FILENAME FIX FOR GITHUB DEPLOYMENT
+    tpl_path = os.path.join(app.root_path, 'static', 'POWER BRIDGE ENGINEERING ID CARD TEMPLATE.png') 
     if os.path.exists(tpl_path): 
         c.drawImage(tpl_path, 0, 0, width=3.375*inch, height=2.125*inch)
     else:
         print(f"CRITICAL WARNING: Template not found at {tpl_path}. Check GitHub!")
     
-    # =========================================================
-    # THE FIX: SECURE BYTE STREAMING & AUTO-FALLBACK
-    # =========================================================
+    # EXACT BACKGROUND REMOVAL LOGIC RESTORED 
     photo_url = w[13]
     if photo_url: 
-        bg_removed_url = photo_url
         if "cloudinary" in photo_url and "/upload/" in photo_url:
             parts = photo_url.split('/upload/')
-            bg_removed_url = f"{parts[0]}/upload/e_background_removal/f_png/{parts[1]}"
+            photo_url = f"{parts[0]}/upload/e_background_removal/f_png/{parts[1]}"
 
         try: 
-            # Request image bypassing security blocks using custom User-Agent
-            img_req = requests.get(bg_removed_url, timeout=10, headers={'User-Agent': 'Mozilla/5.0 PBE-System/1.0'})
-            
-            # If Cloudinary returns 423 (Processing) or 403 (Blocked), instantly fallback to the original photo
-            if img_req.status_code != 200:
-                print(f"Background AI Pending/Blocked ({img_req.status_code}). Falling back to original.")
-                img_req = requests.get(photo_url, timeout=10, headers={'User-Agent': 'Mozilla/5.0 PBE-System/1.0'})
-
-            if img_req.status_code == 200:
-                # Load the raw bytes into memory
-                img_stream = BytesIO(img_req.content)
-                profile_img = ImageReader(img_stream) 
-                
-                c.saveState()
-                c.setFillAlpha(0.2)
-                c.drawImage(profile_img, 0.15*inch, 0.2*inch, width=0.6*inch, height=0.75*inch)
-                c.restoreState()
-                c.drawImage(profile_img, 2.45*inch, 0.45*inch, width=0.75*inch, height=1.0*inch)
-            else:
-                print(f"Failed to fetch any image. Status: {img_req.status_code}")
+            profile_img = ImageReader(photo_url) 
+            c.saveState()
+            c.setFillAlpha(0.2)
+            c.drawImage(profile_img, 0.15*inch, 0.2*inch, width=0.6*inch, height=0.75*inch)
+            c.restoreState()
+            c.drawImage(profile_img, 2.45*inch, 0.45*inch, width=0.75*inch, height=1.0*inch)
         except Exception as e: 
             print(f"Image Mapping Error: {e}")
 
