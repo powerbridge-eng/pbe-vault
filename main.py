@@ -257,17 +257,25 @@ def admin_dashboard():
     cur.execute("SELECT COUNT(*) FROM pbe_registry_2026 WHERE expiry_date <= CURRENT_DATE + INTERVAL '30 days' AND surname IS NOT NULL")
     expiry_alerts = cur.fetchone()[0]
 
+    # RESTORED: 16-Region Global Metrics Data
     reg_stats = {}
     for r in GHANA_REGIONS:
         cur.execute("SELECT COUNT(*) FROM pbe_registry_2026 WHERE region = %s AND surname IS NOT NULL", (r,))
         reg_stats[r] = cur.fetchone()[0]
 
+    # RESTORED: Technical Guilds Metrics Data
     guild_stats = {}
     for g in PBE_GUILDS:
         cur.execute("SELECT COUNT(*) FROM pbe_registry_2026 WHERE department = %s AND surname IS NOT NULL", (g,))
         guild_stats[g] = cur.fetchone()[0]
 
-    cur.execute("SELECT * FROM pbe_registry_2026 WHERE surname IS NOT NULL ORDER BY id DESC")
+    # RESTORED: Department Filter Logic
+    dept = request.args.get('dept')
+    if dept: 
+        cur.execute("SELECT * FROM pbe_registry_2026 WHERE department = %s AND surname IS NOT NULL ORDER BY id DESC", (dept,))
+    else: 
+        cur.execute("SELECT * FROM pbe_registry_2026 WHERE surname IS NOT NULL ORDER BY id DESC")
+        
     workers = cur.fetchall(); cur.close(); conn.close()
 
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", f"""
@@ -288,6 +296,22 @@ def admin_dashboard():
                 </div>
                 {{% endfor %}}
             </div>
+        </div>
+
+        <div class="section-card">
+            <div class="section-title">🛠️ TECHNICAL GUILDS WORKFORCE METRIC</div>
+            <div class="matrix-grid">
+                {{% for guild, count in guild_stats.items() %}}
+                <div class="matrix-item" style="text-align:left;">
+                    <a href="?dept={{{{guild}}}}" class="guild-btn {{{{ 'guild-active' if current_dept == guild else '' }}}}">
+                        {{{{guild}}}} <b style="color:{{{{ 'var(--gold)' if current_dept == guild else 'red' }}}}; float:right;">{{{{count}}}}</b>
+                    </a>
+                </div>
+                {{% endfor %}}
+            </div>
+            {{% if current_dept %}}
+            <a href="/admin-dashboard" class="btn-cmd bg-navy" style="margin-top:10px;">SHOW ALL GUILDS</a>
+            {{% endif %}}
         </div>
 
         <div class="section-card">
@@ -326,7 +350,7 @@ def admin_dashboard():
             {{% if role == 'ADMIN' %}}<a href="/admin/audit" class="fab" title="Audit">📜</a>{{% endif %}}
             <a href="/admin/invite" class="fab" title="Invite">＋</a>
         </div>
-    """), guilds=PBE_GUILDS, workers=workers, role=role, alerts=expiry_alerts, reg_stats=reg_stats, guild_stats=guild_stats)
+    """), guilds=PBE_GUILDS, workers=workers, current_dept=dept, role=role, alerts=expiry_alerts, reg_stats=reg_stats, guild_stats=guild_stats)
 
 # --- 6. COMMAND ENDPOINTS (THE MATRIX BUTTONS) ---
 @app.route("/admin/review/<uid>")
@@ -518,7 +542,6 @@ def print_id(pbe_uid):
     c.drawString(val_x, 0.65*inch, f"{w[19]}") 
     c.drawCentredString(1.68*inch, 0.45*inch, f"{w[20]}") 
     
-    # Mathematical encoding for the QR Code to shield the spaces
     safe_uid = quote(w[6])
     qr_code = qr.QrCodeWidget(f"{request.url_root}verify/{safe_uid}")
     bounds = qr_code.getBounds()
@@ -570,7 +593,6 @@ def register():
             uid = generate_pbe_id()
             lic = generate_pbe_lic()
             
-            # Auto-assign the default recruit rank
             assigned_rank = "Engineering Recruit"
             
             cur.execute("""UPDATE pbe_registry_2026 SET surname=%s, firstname=%s, dob=%s, gender=%s, nationality=%s, pbe_uid=%s, pbe_license=%s,
