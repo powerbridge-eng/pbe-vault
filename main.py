@@ -360,11 +360,11 @@ def review_cmd(uid):
     w = cur.fetchone(); cur.close(); conn.close()
     if not w: abort(404)
     
-    # Pre-warm Cloudinary Cache to prevent Print timeouts
+    # Pre-warm AI Cache with RAM-Optimized image (Width 400px limit)
     photo_url = w[13]
     if photo_url and "cloudinary" in photo_url and "/upload/" in photo_url:
         parts = photo_url.split('/upload/')
-        photo_url = f"{parts[0]}/upload/e_background_removal/f_png/{parts[1]}"
+        photo_url = f"{parts[0]}/upload/e_background_removal/w_400,c_scale,f_png/{parts[1]}"
         
     DOSSIER_HTML = """
     <div class="section-card" style="max-width:800px; margin:auto;">
@@ -401,7 +401,7 @@ def review_cmd(uid):
 
 @app.route("/admin/promote/<uid>", methods=['GET', 'POST'])
 def promote_cmd(uid):
-    if session.get('role') != 'ADMIN': abort(403) # THE IRON DOOR
+    if session.get('role') != 'ADMIN': abort(403)
     conn = get_db(); cur = conn.cursor()
     if request.method == 'POST':
         new_rank = request.form.get('new_rank')
@@ -452,7 +452,7 @@ def decline_cmd(uid):
         try:
             requests.post("https://sms.arkesel.com/api/v2/sms/send", json={"sender": "PBE_ALERT", "message": msg, "recipients": [phone]}, headers={"api-key": ARKESEL_API_KEY}, timeout=5)
         except Exception as e:
-            print(f"SMS Error: {e}")
+            pass
     
     cur.execute("UPDATE pbe_registry_2026 SET status = 'DECLINED' WHERE pbe_uid = %s", (uid,))
     conn.commit(); cur.close(); conn.close(); log_soul_action("DECLINE", f"Declined Registration: {uid}")
@@ -460,33 +460,33 @@ def decline_cmd(uid):
 
 @app.route("/admin/suspend/<uid>")
 def suspend_cmd(uid):
-    if session.get('role') != 'ADMIN': abort(403) # THE IRON DOOR
+    if session.get('role') != 'ADMIN': abort(403)
     conn = get_db(); cur = conn.cursor(); cur.execute("UPDATE pbe_registry_2026 SET status = 'SUSPENDED' WHERE pbe_uid = %s", (uid,))
     conn.commit(); cur.close(); conn.close(); log_soul_action("SUSPEND", f"Suspended PBE-ID: {uid}")
     return redirect(url_for('admin_dashboard'))
 
 @app.route("/admin/unsuspend/<uid>")
 def unsuspend_cmd(uid):
-    if session.get('role') != 'ADMIN': abort(403) # THE IRON DOOR
+    if session.get('role') != 'ADMIN': abort(403)
     conn = get_db(); cur = conn.cursor(); cur.execute("UPDATE pbe_registry_2026 SET status = 'ACTIVE' WHERE pbe_uid = %s", (uid,))
     conn.commit(); cur.close(); conn.close(); log_soul_action("UNSUSPEND", f"Restored PBE-ID: {uid}")
     return redirect(url_for('admin_dashboard'))
 
 @app.route("/admin/renew/<uid>")
 def renew_cmd(uid):
-    if session.get('role') != 'ADMIN': abort(403) # THE IRON DOOR
+    if session.get('role') != 'ADMIN': abort(403)
     conn = get_db(); cur = conn.cursor(); cur.execute("UPDATE pbe_registry_2026 SET expiry_date = expiry_date + INTERVAL '2 years' WHERE pbe_uid = %s", (uid,))
     conn.commit(); cur.close(); conn.close(); log_soul_action("RENEW", f"Extended license for {uid}")
     return redirect(url_for('admin_dashboard'))
 
 @app.route("/admin/delete/<uid>")
 def delete_cmd(uid):
-    if session.get('role') != 'ADMIN': abort(403) # THE IRON DOOR
+    if session.get('role') != 'ADMIN': abort(403)
     conn = get_db(); cur = conn.cursor(); cur.execute("DELETE FROM pbe_registry_2026 WHERE pbe_uid = %s", (uid,))
     conn.commit(); cur.close(); conn.close(); log_soul_action("DELETE", f"Purged PBE-ID: {uid}")
     return redirect(url_for('admin_dashboard'))
 
-# --- 7. ROBOT MAPPING LOGIC (FLAWLESS CALIBRATION WITH CRASH TRACER) ---
+# --- 7. ROBOT MAPPING LOGIC (MEMORY OPTIMIZED & DYNAMIC TEMPLATE) ---
 @app.route("/admin/print-id/<pbe_uid>")
 def print_id(pbe_uid):
     if not session.get('role'): return redirect(url_for('admin_login'))
@@ -502,46 +502,56 @@ def print_id(pbe_uid):
     c = canvas.Canvas(buffer, pagesize=(3.375*inch, 2.125*inch))
     
     # -------------------------------------------------------------------
-    # FIX 1: DUAL-SCANNER FOR TEMPLATE (Works locally and on GitHub)
+    # FIX 1: DYNAMIC TEMPLATE RADAR (Will find it regardless of exact name)
     # -------------------------------------------------------------------
-    tpl_path_1 = os.path.join(app.root_path, 'static', 'POWER BRIDGE ENGINEERING ID CARD TEMPLATE.png') 
-    tpl_path_2 = os.path.join(app.root_path, 'static', 'template.png')
-    
-    if os.path.exists(tpl_path_1): 
-        c.drawImage(tpl_path_1, 0, 0, width=3.375*inch, height=2.125*inch)
-    elif os.path.exists(tpl_path_2):
-        c.drawImage(tpl_path_2, 0, 0, width=3.375*inch, height=2.125*inch)
-    else:
-        print(f"CRITICAL WARNING: Template not found at either path! Check GitHub.")
+    template_found = False
+    static_folder = os.path.join(app.root_path, 'static')
+    if os.path.exists(static_folder):
+        for filename in os.listdir(static_folder):
+            if 'template' in filename.lower() or 'power' in filename.lower():
+                if filename.lower().endswith('.png') or filename.lower().endswith('.jpg'):
+                    exact_path = os.path.join(static_folder, filename)
+                    try:
+                        c.drawImage(exact_path, 0, 0, width=3.375*inch, height=2.125*inch)
+                        template_found = True
+                        break
+                    except: pass
+                    
+    if not template_found:
+        print("CRITICAL WARNING: No background template image detected in the static folder!")
     
     # -------------------------------------------------------------------
-    # FIX 2: ARMORED BYTE FETCHER (Stops Server Crashes / 502 Errors)
+    # FIX 2: CLOUDINARY RAM-OPTIMIZATION (Prevents Server SIGKILL)
     # -------------------------------------------------------------------
     photo_url = w[13]
     profile_img = None
     
     if photo_url: 
+        optimized_raw_url = photo_url
         bg_removed_url = photo_url
+        
         if "cloudinary" in photo_url and "/upload/" in photo_url:
             parts = photo_url.split('/upload/')
-            bg_removed_url = f"{parts[0]}/upload/e_background_removal/f_png/{parts[1]}"
+            # We command Cloudinary to shrink the width to 300px BEFORE sending it to ReportLab.
+            # This completely stops the zlib.compress Out-Of-Memory SIGKILL error.
+            bg_removed_url = f"{parts[0]}/upload/e_background_removal/w_300,c_scale,f_png/{parts[1]}"
+            optimized_raw_url = f"{parts[0]}/upload/w_300,c_scale,f_png/{parts[1]}"
 
         try: 
-            # Step A: Securely fetch Cloudinary AI bytes with 5-second timeout
-            req = requests.get(bg_removed_url, timeout=5)
-            # Step B: Ensure it actually gave us a picture, not an HTML timeout page!
+            # Step A: Fetch optimized AI image
+            req = requests.get(bg_removed_url, timeout=8)
             if req.status_code == 200 and 'image' in req.headers.get('Content-Type', '').lower():
                 profile_img = ImageReader(BytesIO(req.content))
             else:
-                # Step C: Instant Fallback to original image if AI is busy
-                print("Cloudinary AI blocked/busy. Engaging fallback to raw photo.")
-                req2 = requests.get(photo_url, timeout=5)
+                # Step B: Instant Fallback to optimized raw image
+                print("Cloudinary AI busy. Using RAM-optimized raw photo fallback.")
+                req2 = requests.get(optimized_raw_url, timeout=5)
                 if req2.status_code == 200 and 'image' in req2.headers.get('Content-Type', '').lower():
                     profile_img = ImageReader(BytesIO(req2.content))
         except Exception as e: 
-            print(f"Image Fetch Firewall Engaged: {e}")
+            print(f"Image Download Firewall: {e}")
 
-    # Only draw the picture if the server successfully downloaded an image file
+    # Draw the RAM-Optimized picture
     if profile_img:
         try:
             c.saveState()
@@ -550,7 +560,7 @@ def print_id(pbe_uid):
             c.restoreState()
             c.drawImage(profile_img, 2.45*inch, 0.45*inch, width=0.75*inch, height=1.0*inch)
         except Exception as e:
-            print(f"ReportLab Draw Error: {e}")
+            print(f"ReportLab Memory Error: {e}")
 
     try:
         font_path = os.path.join(app.root_path, 'static', 'MyriadPro-Bold.ttf')
@@ -717,7 +727,7 @@ def invite():
         try:
             requests.post("https://sms.arkesel.com/api/v2/sms/send", json={"sender": "PBE_OTP", "message": f"PBE: Use OTP {otp} to register: {request.url_root}register", "recipients": [phone]}, headers={"api-key": ARKESEL_API_KEY}, timeout=5)
         except Exception as e:
-            print(f"SMS Error: {e}")
+            pass
         log_soul_action("INVITE", f"OTP {otp} sent to {phone}")
         return redirect(url_for('admin_dashboard'))
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """
@@ -732,7 +742,7 @@ def invite():
 
 @app.route("/admin/audit")
 def view_audit():
-    if session.get('role') != 'ADMIN': abort(403) # THE IRON DOOR
+    if session.get('role') != 'ADMIN': abort(403)
     conn = get_db(); cur = conn.cursor()
     cur.execute("SELECT timestamp, action, actor, details, ip_address FROM pbe_audit_2026 ORDER BY id DESC LIMIT 100")
     logs = cur.fetchall(); cur.close(); conn.close()
