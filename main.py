@@ -1,4 +1,5 @@
 import os, random, string, re, requests, psycopg2, cloudinary, cloudinary.uploader, datetime, time
+from urllib.parse import quote
 from flask import Flask, request, jsonify, render_template_string, send_file, redirect, url_for, session, abort
 from reportlab.pdfgen import canvas
 from reportlab.graphics.barcode import qr
@@ -67,10 +68,9 @@ def log_soul_action(action, details):
     actor = f"{role} ({op_name})"
     device = f"{request.user_agent.platform} | {request.user_agent.browser}"
     
-    # Extract true IP from Render proxy
-    ip = request.headers.get('X-Forwarded-For', request.remote_addr).split(',')[0].strip()
+    remote = request.remote_addr or '127.0.0.1'
+    ip = request.headers.get('X-Forwarded-For', remote).split(',')[0].strip()
     
-    # Geo-IP Translation
     location = "Unknown Location"
     if ip and ip != '127.0.0.1':
         try:
@@ -311,16 +311,16 @@ def admin_dashboard():
                             <td><b>{{{{ w[8] }}}}</b><br><small>{{{{ w[9] }}}}</small></td>
                             <td><b style="color:{{{{ '#28a745' if w[15]=='ACTIVE' else '#fd7e14' if w[15]=='DECLINED' else '#dc3545' }}}};">{{{{ w[15] }}}}</b></td>
                             <td>
-                                <a href="/admin/print-id/{{{{ w[6] }}}}" class="btn-cmd bg-blue">PRINT</a>
-                                <a href="https://wa.me/{{{{ w[10] }}}}" class="btn-cmd bg-wa" target="_blank">WA</a>
+                                <a href="{{{{ url_for('print_id', pbe_uid=w[6]) }}}}" class="btn-cmd bg-blue">PRINT</a>
+                                <a href="https://wa.me/{{{{ w[10]|replace('+', '')|replace(' ', '') }}}}" class="btn-cmd bg-wa" target="_blank">WA</a>
                                 <a href="mailto:{{{{ w[11] }}}}" class="btn-cmd bg-navy">EMAIL</a>
-                                <a href="/admin/approve/{{{{ w[6] }}}}" class="btn-cmd bg-wa">APPROVE</a>
-                                <a href="/admin/decline/{{{{ w[6] }}}}" class="btn-cmd bg-orange">DECLINE</a>
+                                <a href="{{{{ url_for('approve_cmd', uid=w[6]) }}}}" class="btn-cmd bg-wa">APPROVE</a>
+                                <a href="{{{{ url_for('decline_cmd', uid=w[6]) }}}}" class="btn-cmd bg-orange">DECLINE</a>
                                 {{% if role == 'ADMIN' %}}
-                                <a href="/admin/suspend/{{{{ w[6] }}}}" class="btn-cmd bg-sus">SUSPEND</a>
-                                <a href="/admin/unsuspend/{{{{ w[6] }}}}" class="btn-cmd bg-blue">UNSUSPEND</a>
-                                <a href="/admin/renew/{{{{ w[6] }}}}" class="btn-cmd bg-gold">RENEW</a>
-                                <a href="/admin/delete/{{{{ w[6] }}}}" class="btn-cmd bg-red" onclick="return confirm('Erase Soul Record Permanently?')">DELETE</a>
+                                <a href="{{{{ url_for('suspend_cmd', uid=w[6]) }}}}" class="btn-cmd bg-sus">SUSPEND</a>
+                                <a href="{{{{ url_for('unsuspend_cmd', uid=w[6]) }}}}" class="btn-cmd bg-blue">UNSUSPEND</a>
+                                <a href="{{{{ url_for('renew_cmd', uid=w[6]) }}}}" class="btn-cmd bg-gold">RENEW</a>
+                                <a href="{{{{ url_for('delete_cmd', uid=w[6]) }}}}" class="btn-cmd bg-red" onclick="return confirm('Erase Soul Record Permanently?')">DELETE</a>
                                 {{% endif %}}
                             </td>
                         </tr>
@@ -349,13 +349,15 @@ def approve_cmd(uid):
 def decline_cmd(uid):
     if not session.get('role'): abort(403)
     conn = get_db(); cur = conn.cursor()
-    # Fetch Phone Number for the SMS
     cur.execute("SELECT phone_no FROM pbe_registry_2026 WHERE pbe_uid = %s", (uid,))
     res = cur.fetchone()
     if res:
         phone = res[0]
         msg = "PBE ALERT: Your registration was declined due to errors. Please contact HQ to reset your profile and re-register."
-        requests.post("https://sms.arkesel.com/api/v2/sms/send", json={"sender": "PBE_ALERT", "message": msg, "recipients": [phone]}, headers={"api-key": ARKESEL_API_KEY})
+        try:
+            requests.post("https://sms.arkesel.com/api/v2/sms/send", json={"sender": "PBE_ALERT", "message": msg, "recipients": [phone]}, headers={"api-key": ARKESEL_API_KEY}, timeout=5)
+        except Exception as e:
+            print(f"SMS Error: {e}")
     
     cur.execute("UPDATE pbe_registry_2026 SET status = 'DECLINED' WHERE pbe_uid = %s", (uid,))
     conn.commit(); cur.close(); conn.close(); log_soul_action("DECLINE", f"Declined Registration: {uid}")
@@ -447,7 +449,9 @@ def print_id(pbe_uid):
     c.drawString(val_x, 0.65*inch, f"{w[19]}") 
     c.drawCentredString(1.68*inch, 0.45*inch, f"{w[20]}") 
     
-    qr_code = qr.QrCodeWidget(f"{request.url_root}verify/{w[6]}")
+    # Mathematical encoding for the QR Code to shield the spaces
+    safe_uid = quote(w[6])
+    qr_code = qr.QrCodeWidget(f"{request.url_root}verify/{safe_uid}")
     bounds = qr_code.getBounds()
     d = Drawing(35, 35, transform=[35./(bounds[2]-bounds[0]),0,0,35./(bounds[3]-bounds[1]),0,0])
     d.add(qr_code)
@@ -560,7 +564,6 @@ def admin_login():
             return redirect(url_for('admin_dashboard'))
         else:
             blacklist_ip(ip)
-            # Log failure with the attempted operator name
             session['op_name'] = op_name
             log_soul_action("SECURITY ALERT", f"Intruder Blocked from IP: {ip}")
             session.clear()
@@ -587,7 +590,10 @@ def invite():
         cur.execute("DELETE FROM pbe_registry_2026 WHERE phone_no = %s AND status = 'PENDING'", (phone,))
         cur.execute("INSERT INTO pbe_registry_2026 (phone_no, otp_code) VALUES (%s, %s)", (phone, otp))
         conn.commit(); cur.close(); conn.close()
-        requests.post("https://sms.arkesel.com/api/v2/sms/send", json={"sender": "PBE_OTP", "message": f"PBE: Use OTP {otp} to register: {request.url_root}register", "recipients": [phone]}, headers={"api-key": ARKESEL_API_KEY})
+        try:
+            requests.post("https://sms.arkesel.com/api/v2/sms/send", json={"sender": "PBE_OTP", "message": f"PBE: Use OTP {otp} to register: {request.url_root}register", "recipients": [phone]}, headers={"api-key": ARKESEL_API_KEY}, timeout=5)
+        except Exception as e:
+            print(f"SMS Error: {e}")
         log_soul_action("INVITE", f"OTP {otp} sent to {phone}")
         return redirect(url_for('admin_dashboard'))
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """
