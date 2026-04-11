@@ -140,6 +140,8 @@ BASE_HTML = """
         .section-title { font-size: 13px; font-weight: 800; color: #6c757d; text-transform: uppercase; margin-bottom: 15px; border-left: 4px solid var(--navy); padding-left: 10px; }
         .matrix-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
         .matrix-item { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 12px; text-align: center; font-size: 11px; font-weight: bold; color: var(--navy); }
+        .guild-btn { text-decoration: none; display: block; }
+        .guild-active { background: var(--navy); color: var(--gold); border-color: var(--gold); }
         .registry-table { width: 100%; border-collapse: collapse; font-size: 13px; }
         .registry-table th { text-align: left; padding: 12px; border-bottom: 2px solid #dee2e6; }
         .registry-table td { padding: 15px 12px; border-bottom: 1px solid #f1f3f5; }
@@ -257,19 +259,16 @@ def admin_dashboard():
     cur.execute("SELECT COUNT(*) FROM pbe_registry_2026 WHERE expiry_date <= CURRENT_DATE + INTERVAL '30 days' AND surname IS NOT NULL")
     expiry_alerts = cur.fetchone()[0]
 
-    # RESTORED: 16-Region Global Metrics Data
     reg_stats = {}
     for r in GHANA_REGIONS:
         cur.execute("SELECT COUNT(*) FROM pbe_registry_2026 WHERE region = %s AND surname IS NOT NULL", (r,))
         reg_stats[r] = cur.fetchone()[0]
 
-    # RESTORED: Technical Guilds Metrics Data
     guild_stats = {}
     for g in PBE_GUILDS:
         cur.execute("SELECT COUNT(*) FROM pbe_registry_2026 WHERE department = %s AND surname IS NOT NULL", (g,))
         guild_stats[g] = cur.fetchone()[0]
 
-    # RESTORED: Department Filter Logic
     dept = request.args.get('dept')
     if dept: 
         cur.execute("SELECT * FROM pbe_registry_2026 WHERE department = %s AND surname IS NOT NULL ORDER BY id DESC", (dept,))
@@ -505,19 +504,37 @@ def print_id(pbe_uid):
     else:
         print(f"CRITICAL WARNING: Template not found at {tpl_path}. Check GitHub!")
     
+    # =========================================================
+    # THE FIX: SECURE BYTE STREAMING & AUTO-FALLBACK
+    # =========================================================
     photo_url = w[13]
     if photo_url: 
+        bg_removed_url = photo_url
         if "cloudinary" in photo_url and "/upload/" in photo_url:
             parts = photo_url.split('/upload/')
-            photo_url = f"{parts[0]}/upload/e_background_removal/f_png/{parts[1]}"
+            bg_removed_url = f"{parts[0]}/upload/e_background_removal/f_png/{parts[1]}"
 
         try: 
-            profile_img = ImageReader(photo_url) 
-            c.saveState()
-            c.setFillAlpha(0.2)
-            c.drawImage(profile_img, 0.15*inch, 0.2*inch, width=0.6*inch, height=0.75*inch)
-            c.restoreState()
-            c.drawImage(profile_img, 2.45*inch, 0.45*inch, width=0.75*inch, height=1.0*inch)
+            # Request image bypassing security blocks using custom User-Agent
+            img_req = requests.get(bg_removed_url, timeout=10, headers={'User-Agent': 'Mozilla/5.0 PBE-System/1.0'})
+            
+            # If Cloudinary returns 423 (Processing) or 403 (Blocked), instantly fallback to the original photo
+            if img_req.status_code != 200:
+                print(f"Background AI Pending/Blocked ({img_req.status_code}). Falling back to original.")
+                img_req = requests.get(photo_url, timeout=10, headers={'User-Agent': 'Mozilla/5.0 PBE-System/1.0'})
+
+            if img_req.status_code == 200:
+                # Load the raw bytes into memory
+                img_stream = BytesIO(img_req.content)
+                profile_img = ImageReader(img_stream) 
+                
+                c.saveState()
+                c.setFillAlpha(0.2)
+                c.drawImage(profile_img, 0.15*inch, 0.2*inch, width=0.6*inch, height=0.75*inch)
+                c.restoreState()
+                c.drawImage(profile_img, 2.45*inch, 0.45*inch, width=0.75*inch, height=1.0*inch)
+            else:
+                print(f"Failed to fetch any image. Status: {img_req.status_code}")
         except Exception as e: 
             print(f"Image Mapping Error: {e}")
 
