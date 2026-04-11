@@ -34,19 +34,15 @@ def get_db():
 # --- 2. THE SMART AUTO-RESTART DATABASE DOCTOR ---
 def init_db():
     conn = get_db(); cur = conn.cursor()
-    
-    # 1. THE SMART TRIGGER: Check if the new 'gender' column exists yet
     cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='pbe_registry_2026' AND column_name='gender';")
     is_updated = cur.fetchone()
     
-    # 2. THE ONE-TIME PURGE: If it doesn't exist, wipe the old tables (Disables itself after first run)
     if not is_updated:
         cur.execute("DROP TABLE IF EXISTS pbe_registry_2026 CASCADE;")
         cur.execute("DROP TABLE IF EXISTS pbe_audit_2026 CASCADE;")
         cur.execute("DROP TABLE IF EXISTS pbe_ip_blacklist CASCADE;")
         print("SYSTEM OVERRIDE: Executed one-time database purge and rebuild.")
         
-    # 3. THE NEW BLUEPRINT: Build the upgraded tables safely
     cur.execute("""
         CREATE TABLE IF NOT EXISTS pbe_registry_2026 (
             id SERIAL PRIMARY KEY, surname TEXT, firstname TEXT, dob TEXT,
@@ -64,12 +60,30 @@ def init_db():
 
 with app.app_context(): init_db()
 
+# --- THE GEO-IP TRACKING & NAMED AUDIT LOG ENGINE ---
 def log_soul_action(action, details):
-    actor = session.get('role', 'SYSTEM')
+    role = session.get('role', 'SYSTEM')
+    op_name = session.get('op_name', 'Unknown')
+    actor = f"{role} ({op_name})"
     device = f"{request.user_agent.platform} | {request.user_agent.browser}"
+    
+    # Extract true IP from Render proxy
+    ip = request.headers.get('X-Forwarded-For', request.remote_addr).split(',')[0].strip()
+    
+    # Geo-IP Translation
+    location = "Unknown Location"
+    if ip and ip != '127.0.0.1':
+        try:
+            geo = requests.get(f"http://ip-api.com/json/{ip}", timeout=2).json()
+            if geo.get('status') == 'success':
+                location = f"{geo.get('city')}, {geo.get('regionName')}, {geo.get('country')}"
+        except: pass
+        
+    ip_with_geo = f"{ip} [{location}]"
+
     conn = get_db(); cur = conn.cursor()
     cur.execute("INSERT INTO pbe_audit_2026 (action, actor, details, ip_address, device_info) VALUES (%s, %s, %s, %s, %s)",
-                (action, actor, details, request.remote_addr, device))
+                (action, actor, details, ip_with_geo, device))
     conn.commit(); cur.close(); conn.close()
 
 def is_blacklisted(ip):
@@ -125,7 +139,7 @@ BASE_HTML = """
         .registry-table th { text-align: left; padding: 12px; border-bottom: 2px solid #dee2e6; }
         .registry-table td { padding: 15px 12px; border-bottom: 1px solid #f1f3f5; }
         .btn-cmd { padding: 8px 12px; border-radius: 6px; color: white; text-decoration: none; font-size: 10px; font-weight: bold; margin: 2px; display: inline-block; border: none; cursor: pointer; text-align: center;}
-        .bg-blue { background: #007bff; } .bg-wa { background: #28a745; } .bg-red { background: #dc3545; } .bg-sus { background: #6c757d; } .bg-gold { background: var(--gold); color: #000; } .bg-navy { background: var(--navy); }
+        .bg-blue { background: #007bff; } .bg-wa { background: #28a745; } .bg-red { background: #dc3545; } .bg-sus { background: #6c757d; } .bg-gold { background: var(--gold); color: #000; } .bg-navy { background: var(--navy); } .bg-orange { background: #fd7e14; }
         .fab-zone { position: fixed; bottom: 30px; right: 30px; display: flex; flex-direction: column; gap: 12px; z-index: 1000; }
         .fab { width: 60px; height: 60px; background: var(--navy); color: var(--gold); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); text-decoration: none; border: 2px solid var(--gold); }
     </style>
@@ -134,6 +148,7 @@ BASE_HTML = """
     <div class="header">
         <img src="{{ url_for('static', filename='logo.png') }}" class="logo" onerror="this.style.display='none'">
         <div style="font-size: 22px; font-weight: 900; letter-spacing: 2px;">PBE COMMAND CENTER</div>
+        <div style="font-size: 12px; margin-top: 5px; color: var(--gold);">OPERATOR: {{ session.get('op_name', 'SYSTEM') }}</div>
     </div>
     <div class="container">{% block content %}{% endblock %}</div>
     <script>
@@ -169,6 +184,7 @@ VERIFY_HTML = """
         .status-active { background: #28a745; box-shadow: 0 0 15px rgba(40,167,69,0.4); }
         .status-suspended { background: #dc3545; box-shadow: 0 0 15px rgba(220,53,69,0.4); }
         .status-expired { background: #ffc107; color: #000; box-shadow: 0 0 15px rgba(255,193,7,0.4); }
+        .status-declined { background: #fd7e14; box-shadow: 0 0 15px rgba(253,126,20,0.4); }
         .watermark { font-size: 10px; color: #adb5bd; margin-top: 20px; }
     </style>
 </head>
@@ -198,6 +214,7 @@ VERIFY_HTML = """
             <div class="status-badge 
                 {% if live_status == 'ACTIVE' %} status-active 
                 {% elif live_status == 'EXPIRED' %} status-expired 
+                {% elif live_status == 'DECLINED' %} status-declined
                 {% else %} status-suspended {% endif %}">
                 {{ live_status }}
             </div>
@@ -292,13 +309,14 @@ def admin_dashboard():
                             <td>ID: <b>{{{{ w[6] }}}}</b><br>LIC: <small>{{{{ w[7] }}}}</small></td>
                             <td>{{{{ w[1] }}}}, {{{{ w[2] }}}}</td>
                             <td><b>{{{{ w[8] }}}}</b><br><small>{{{{ w[9] }}}}</small></td>
-                            <td><b style="color:{{{{ '#28a745' if w[15]=='ACTIVE' else '#dc3545' }}}};">{{{{ w[15] }}}}</b></td>
+                            <td><b style="color:{{{{ '#28a745' if w[15]=='ACTIVE' else '#fd7e14' if w[15]=='DECLINED' else '#dc3545' }}}};">{{{{ w[15] }}}}</b></td>
                             <td>
                                 <a href="/admin/print-id/{{{{ w[6] }}}}" class="btn-cmd bg-blue">PRINT</a>
                                 <a href="https://wa.me/{{{{ w[10] }}}}" class="btn-cmd bg-wa" target="_blank">WA</a>
                                 <a href="mailto:{{{{ w[11] }}}}" class="btn-cmd bg-navy">EMAIL</a>
-                                {{% if role == 'ADMIN' %}}
                                 <a href="/admin/approve/{{{{ w[6] }}}}" class="btn-cmd bg-wa">APPROVE</a>
+                                <a href="/admin/decline/{{{{ w[6] }}}}" class="btn-cmd bg-orange">DECLINE</a>
+                                {{% if role == 'ADMIN' %}}
                                 <a href="/admin/suspend/{{{{ w[6] }}}}" class="btn-cmd bg-sus">SUSPEND</a>
                                 <a href="/admin/unsuspend/{{{{ w[6] }}}}" class="btn-cmd bg-blue">UNSUSPEND</a>
                                 <a href="/admin/renew/{{{{ w[6] }}}}" class="btn-cmd bg-gold">RENEW</a>
@@ -319,38 +337,54 @@ def admin_dashboard():
         </div>
     """), guilds=PBE_GUILDS, workers=workers, current_dept=dept, role=role, alerts=expiry_alerts, reg_stats=reg_stats, guild_stats=guild_stats)
 
-# --- 6. COMMAND ENDPOINTS (THE 8 BUTTONS) ---
+# --- 6. COMMAND ENDPOINTS (THE 9 BUTTONS) ---
 @app.route("/admin/approve/<uid>")
 def approve_cmd(uid):
-    if session.get('role') != 'ADMIN': abort(403)
+    if not session.get('role'): abort(403)
     conn = get_db(); cur = conn.cursor(); cur.execute("UPDATE pbe_registry_2026 SET status = 'ACTIVE' WHERE pbe_uid = %s", (uid,))
     conn.commit(); cur.close(); conn.close(); log_soul_action("APPROVE", f"Activated PBE-ID: {uid}")
     return redirect(url_for('admin_dashboard'))
 
+@app.route("/admin/decline/<uid>")
+def decline_cmd(uid):
+    if not session.get('role'): abort(403)
+    conn = get_db(); cur = conn.cursor()
+    # Fetch Phone Number for the SMS
+    cur.execute("SELECT phone_no FROM pbe_registry_2026 WHERE pbe_uid = %s", (uid,))
+    res = cur.fetchone()
+    if res:
+        phone = res[0]
+        msg = "PBE ALERT: Your registration was declined due to errors. Please contact HQ to reset your profile and re-register."
+        requests.post("https://sms.arkesel.com/api/v2/sms/send", json={"sender": "PBE_ALERT", "message": msg, "recipients": [phone]}, headers={"api-key": ARKESEL_API_KEY})
+    
+    cur.execute("UPDATE pbe_registry_2026 SET status = 'DECLINED' WHERE pbe_uid = %s", (uid,))
+    conn.commit(); cur.close(); conn.close(); log_soul_action("DECLINE", f"Declined Registration: {uid}")
+    return redirect(url_for('admin_dashboard'))
+
 @app.route("/admin/suspend/<uid>")
 def suspend_cmd(uid):
-    if session.get('role') != 'ADMIN': abort(403)
+    if session.get('role') != 'ADMIN': abort(403) # THE IRON DOOR
     conn = get_db(); cur = conn.cursor(); cur.execute("UPDATE pbe_registry_2026 SET status = 'SUSPENDED' WHERE pbe_uid = %s", (uid,))
     conn.commit(); cur.close(); conn.close(); log_soul_action("SUSPEND", f"Suspended PBE-ID: {uid}")
     return redirect(url_for('admin_dashboard'))
 
 @app.route("/admin/unsuspend/<uid>")
 def unsuspend_cmd(uid):
-    if session.get('role') != 'ADMIN': abort(403)
+    if session.get('role') != 'ADMIN': abort(403) # THE IRON DOOR
     conn = get_db(); cur = conn.cursor(); cur.execute("UPDATE pbe_registry_2026 SET status = 'ACTIVE' WHERE pbe_uid = %s", (uid,))
     conn.commit(); cur.close(); conn.close(); log_soul_action("UNSUSPEND", f"Restored PBE-ID: {uid}")
     return redirect(url_for('admin_dashboard'))
 
 @app.route("/admin/renew/<uid>")
 def renew_cmd(uid):
-    if session.get('role') != 'ADMIN': abort(403)
+    if session.get('role') != 'ADMIN': abort(403) # THE IRON DOOR
     conn = get_db(); cur = conn.cursor(); cur.execute("UPDATE pbe_registry_2026 SET expiry_date = expiry_date + INTERVAL '2 years' WHERE pbe_uid = %s", (uid,))
     conn.commit(); cur.close(); conn.close(); log_soul_action("RENEW", f"Extended license for {uid}")
     return redirect(url_for('admin_dashboard'))
 
 @app.route("/admin/delete/<uid>")
 def delete_cmd(uid):
-    if session.get('role') != 'ADMIN': abort(403)
+    if session.get('role') != 'ADMIN': abort(403) # THE IRON DOOR
     conn = get_db(); cur = conn.cursor(); cur.execute("DELETE FROM pbe_registry_2026 WHERE pbe_uid = %s", (uid,))
     conn.commit(); cur.close(); conn.close(); log_soul_action("DELETE", f"Purged PBE-ID: {uid}")
     return redirect(url_for('admin_dashboard'))
@@ -370,62 +404,49 @@ def print_id(pbe_uid):
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=(3.375*inch, 2.125*inch))
     
-    # Base Template Layer (EXACT FILE NAME LOCKED IN)
     tpl_path = os.path.join(app.root_path, 'static', 'template.png') 
     if os.path.exists(tpl_path): 
         c.drawImage(tpl_path, 0, 0, width=3.375*inch, height=2.125*inch)
     else:
         print(f"CRITICAL WARNING: Template not found at {tpl_path}. Check GitHub!")
     
-    # Main Photo Layer & Instant AI Background Stripper
     photo_url = w[13]
     if photo_url: 
-        # INJECT THE ON-THE-FLY AI AND FORCE TRANSPARENT PNG FORMAT
         if "cloudinary" in photo_url and "/upload/" in photo_url:
             parts = photo_url.split('/upload/')
             photo_url = f"{parts[0]}/upload/e_background_removal/f_png/{parts[1]}"
 
         try: 
             profile_img = ImageReader(photo_url) 
-            
-            # Sub-Layer A: Ghost Watermark (Bottom Left)
             c.saveState()
             c.setFillAlpha(0.2)
             c.drawImage(profile_img, 0.15*inch, 0.2*inch, width=0.6*inch, height=0.75*inch)
             c.restoreState()
-            
-            # Sub-Layer B: Primary Photo (Right Side mapping based on Photoshop grid)
             c.drawImage(profile_img, 2.45*inch, 0.45*inch, width=0.75*inch, height=1.0*inch)
         except Exception as e: 
             print(f"Image Mapping Error: {e}")
 
-    # Custom Typography Sync (Myriad Pro)
     try:
         font_path = os.path.join(app.root_path, 'static', 'MyriadPro-Bold.ttf')
         pdfmetrics.registerFont(TTFont('MyriadPro', font_path))
         font_name = 'MyriadPro'
     except:
-        font_name = 'Helvetica-Bold' # Fail-safe fallback
+        font_name = 'Helvetica-Bold' 
 
     c.setFont(font_name, 6)
     c.setFillColor(colors.black)
 
-    # Text Matrix (Left Column Alignment)
     val_x = 0.85 * inch
-
-    c.drawString(val_x, 1.70*inch, f"{w[2]}")  # Surname
-    c.drawString(val_x, 1.55*inch, f"{w[1]}")  # Firstname
-    c.drawString(val_x, 1.40*inch, f"{w[4]}")  # Gender
-    c.drawString(val_x, 1.25*inch, f"{w[5]}")  # Nationality
-    c.drawString(val_x, 1.10*inch, f"{w[6]}")  # ID Number
-    c.drawString(val_x, 0.95*inch, f"{w[7]}")  # License
-    c.drawString(val_x, 0.80*inch, f"{w[8]}")  # Rank
-    c.drawString(val_x, 0.65*inch, f"{w[19]}") # Date of Issuance
-    
-    # Centered Expiry Date (Bottom Center)
+    c.drawString(val_x, 1.70*inch, f"{w[2]}")  
+    c.drawString(val_x, 1.55*inch, f"{w[1]}")  
+    c.drawString(val_x, 1.40*inch, f"{w[4]}")  
+    c.drawString(val_x, 1.25*inch, f"{w[5]}")  
+    c.drawString(val_x, 1.10*inch, f"{w[6]}")  
+    c.drawString(val_x, 0.95*inch, f"{w[7]}")  
+    c.drawString(val_x, 0.80*inch, f"{w[8]}")  
+    c.drawString(val_x, 0.65*inch, f"{w[19]}") 
     c.drawCentredString(1.68*inch, 0.45*inch, f"{w[20]}") 
     
-    # QR Verification Matrix (Bottom Center)
     qr_code = qr.QrCodeWidget(f"{request.url_root}verify/{w[6]}")
     bounds = qr_code.getBounds()
     d = Drawing(35, 35, transform=[35./(bounds[2]-bounds[0]),0,0,35./(bounds[3]-bounds[1]),0,0])
@@ -525,25 +546,33 @@ def admin_login():
 
     if request.method == 'POST':
         pwd = request.form.get('password')
+        op_name = request.form.get('op_name', 'UNKNOWN').upper()
+        
         if pwd == ADMIN_PASSWORD: 
             session['role'] = 'ADMIN'
-            log_soul_action("LOGIN", "Admin Access Granted")
+            session['op_name'] = op_name
+            log_soul_action("LOGIN", "Supreme Admin Access Granted")
             return redirect(url_for('admin_dashboard'))
         elif pwd == SUPERVISOR_PASSWORD: 
             session['role'] = 'SUPERVISOR'
+            session['op_name'] = op_name
             log_soul_action("LOGIN", "Supervisor Access Granted")
             return redirect(url_for('admin_dashboard'))
         else:
             blacklist_ip(ip)
+            # Log failure with the attempted operator name
+            session['op_name'] = op_name
             log_soul_action("SECURITY ALERT", f"Intruder Blocked from IP: {ip}")
+            session.clear()
             return redirect(url_for('admin_login'))
 
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """
         <div class="section-card" style="max-width:400px; margin:auto; text-align:center;">
-            <h3>SYSTEM LOCK</h3>
+            <h3>HQ SYSTEM LOCK</h3>
             <form method="POST">
-                <input type="password" name="password" style="width:100%; padding:12px; margin-bottom:15px; box-sizing:border-box;" required>
-                <button class="btn-cmd bg-navy" style="width:100%; padding:15px;">UNLOCK</button>
+                <input type="text" name="op_name" placeholder="Operator Name (e.g. General Imperial)" style="width:100%; padding:12px; margin-bottom:10px; box-sizing:border-box;" required>
+                <input type="password" name="password" placeholder="Master Access Key" style="width:100%; padding:12px; margin-bottom:15px; box-sizing:border-box;" required>
+                <button class="btn-cmd bg-navy" style="width:100%; padding:15px;">UNLOCK COMMAND CENTER</button>
             </form>
         </div>
     """))
@@ -573,19 +602,20 @@ def invite():
 
 @app.route("/admin/audit")
 def view_audit():
-    if session.get('role') != 'ADMIN': abort(403)
+    if session.get('role') != 'ADMIN': abort(403) # THE IRON DOOR
     conn = get_db(); cur = conn.cursor()
     cur.execute("SELECT timestamp, action, actor, details, ip_address FROM pbe_audit_2026 ORDER BY id DESC LIMIT 100")
     logs = cur.fetchall(); cur.close(); conn.close()
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """
         <div class="section-card">
-            <div class="section-title">📜 SOUL AUDIT LOGS</div>
+            <div class="section-title">📜 SOUL AUDIT LOGS (CLASSIFIED)</div>
             <div style="font-family:monospace; font-size:12px; max-height:500px; overflow-y:auto; background:#1e1e1e; color:#00ff00; padding:15px; border-radius:8px;">
                 {% for l in logs %}
                 <div style="margin-bottom:8px; border-bottom:1px solid #333; padding-bottom:5px;">
                     <span style="color:#888;">[{{ l[0].strftime('%Y-%m-%d %H:%M') }}]</span> 
                     <span style="color:#ffc107;">[{{ l[2] }}]</span> 
-                    <b>{{ l[1] }}</b>: {{ l[3] }} <span style="color:#888; float:right;">(IP: {{ l[4] }})</span>
+                    <b>{{ l[1] }}</b>: {{ l[3] }} <br>
+                    <span style="color:#00ccff; font-size: 10px;">Geo-IP Tracker: {{ l[4] }}</span>
                 </div>
                 {% endfor %}
             </div>
