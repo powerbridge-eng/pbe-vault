@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PBE Vanguard Visual Editor</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #1a1a1a; color: white; margin: 0; display: flex; flex-direction: column; align-items: center; }
+        .toolbar { background: #2d2d2d; padding: 15px; width: 100%; display: flex; gap: 20px; justify-content: center; border-bottom: 3px solid #ffc107; }
+        .canvas-container { margin-top: 20px; box-shadow: 0 0 50px rgba(0,0,0,0.5); border: 2px solid #333; }
+        .controls { background: #2d2d2d; padding: 20px; margin-top: 20px; border-radius: 10px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; width: 800px; }
+        .control-group { display: flex; flex-direction: column; gap: 8px; }
+        label { font-size: 12px; color: #ffc107; font-weight: bold; text-transform: uppercase; }
+        input[type="range"] { cursor: pointer; }
+        .btn-print { background: #28a745; color: white; border: none; padding: 15px 40px; border-radius: 5px; font-weight: bold; cursor: pointer; grid-column: span 3; font-size: 18px; margin-top: 10px; }
+        .btn-print:hover { background: #218838; }
+    </style>
+</head>
+<body>
+
+    <div class="toolbar">
+        <div style="font-weight: 900; letter-spacing: 2px;">PBE COMMAND SUITE: VISUAL EDITOR</div>
+    </div>
+
+    <canvas id="idCanvas" width="1012" height="638"></canvas>
+
+    <div class="controls">
+        <div class="control-group">
+            <label>Photo Blending (Ghosting)</label>
+            <input type="range" id="opacity" min="0" max="1" step="0.01" value="1" oninput="updatePhoto()">
+            <label>Feathering (Soft Edges)</label>
+            <input type="range" id="blur" min="0" max="20" step="1" value="0" oninput="updatePhoto()">
+        </div>
+
+        <div class="control-group">
+            <label>3D Font Depth</label>
+            <input type="range" id="fontShadow" min="0" max="10" step="1" value="3" oninput="updateText()">
+            <label>Font Size</label>
+            <input type="range" id="fontSize" min="10" max="50" step="1" value="24" oninput="updateText()">
+        </div>
+
+        <div class="control-group" style="align-items: center; justify-content: center;">
+            <input type="checkbox" id="saveMaster" checked>
+            <label for="saveMaster">Save as Master Blueprint</label>
+        </div>
+
+        <button class="btn-print" onclick="finalizeAndPrint()">LOCK & EXECUTE FINAL PRINT</button>
+    </div>
+
+    <script>
+        const canvas = new fabric.Canvas('idCanvas');
+        let bgImg, personImg;
+
+        // 1. Load Background Template
+        fabric.Image.fromURL('/static/template.png', function(img) {
+            bgImg = img;
+            img.set({ selectable: false, evented: false });
+            canvas.add(img);
+            canvas.sendToBack(img);
+            loadPersonnelData();
+        });
+
+        // 2. Load Personnel Data (Placeholder logic - will be dynamic)
+        function loadPersonnelData() {
+            // This is where the 3D Gold Font is created
+            const nameText = new fabric.Text('GILBERT ARKUH', {
+                left: 300, top: 150,
+                fill: '#C59B27',
+                fontFamily: 'Arial',
+                fontWeight: 'bold',
+                fontSize: 40,
+                shadow: new fabric.Shadow({ color: 'rgba(0,0,0,0.6)', blur: 3, offsetX: 3, offsetY: 3 })
+            });
+            canvas.add(nameText);
+        }
+
+        function finalizeAndPrint() {
+            // Take the High-Def Snapshot
+            const dataURL = canvas.toDataURL({ format: 'png', quality: 1 });
+            
+            // Send back to Render
+            fetch('/process-visual-print', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    image: dataURL,
+                    uid: '{{ uid }}',
+                    save_master: document.getElementById('saveMaster').checked
+                })
+            }).then(res => {
+                if(res.ok) window.location.href = '/admin-dashboard';
+            });
+        }
+
+        // Functions for sliders would go here
+        function updatePhoto() { /* Logic to adjust Fabric.js layers */ }
+        function updateText() { /* Logic to adjust 3D shadows */ }
+    </script>
+</body>
+</html>
