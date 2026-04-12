@@ -1,99 +1,153 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>PBE Vanguard Visual Editor</title>
+    <meta charset="UTF-8">
+    <title>PBE Command Center - Pro Photoshop Suite</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #1a1a1a; color: white; margin: 0; display: flex; flex-direction: column; align-items: center; }
-        .toolbar { background: #2d2d2d; padding: 15px; width: 100%; display: flex; gap: 20px; justify-content: center; border-bottom: 3px solid #ffc107; }
-        .canvas-container { margin-top: 20px; box-shadow: 0 0 50px rgba(0,0,0,0.5); border: 2px solid #333; }
-        .controls { background: #2d2d2d; padding: 20px; margin-top: 20px; border-radius: 10px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; width: 800px; }
-        .control-group { display: flex; flex-direction: column; gap: 8px; }
-        label { font-size: 12px; color: #ffc107; font-weight: bold; text-transform: uppercase; }
-        input[type="range"] { cursor: pointer; }
-        .btn-print { background: #28a745; color: white; border: none; padding: 15px 40px; border-radius: 5px; font-weight: bold; cursor: pointer; grid-column: span 3; font-size: 18px; margin-top: 10px; }
-        .btn-print:hover { background: #218838; }
+        :root { --ps-dark: #1e1e1e; --ps-ui: #2d2d2d; --ps-accent: #3e3e3e; --gold: #ffc107; }
+        body { background-color: #111; color: #ccc; font-family: 'Segoe UI', sans-serif; margin: 0; display: flex; height: 100vh; overflow: hidden; }
+
+        /* Left Sidebar (Tools) */
+        .ps-toolbar { width: 50px; background: var(--ps-ui); border-right: 1px solid #111; display: flex; flex-direction: column; align-items: center; padding: 10px 0; gap: 15px; }
+        .tool-icon { width: 30px; height: 30px; cursor: pointer; display: flex; align-items: center; justify-content: center; border-radius: 4px; border: 1px solid transparent; }
+        .tool-icon:hover { background: var(--ps-accent); border: 1px solid #555; }
+        .tool-icon.active { background: #333; border: 1px solid var(--gold); }
+
+        /* Workspace (Canvas) */
+        .ps-workspace { flex-grow: 1; display: flex; align-items: center; justify-content: center; position: relative; background: #111; overflow: auto; }
+        .canvas-container { box-shadow: 0 0 50px rgba(0,0,0,1); border: 1px solid #333; }
+
+        /* Right Panel (Layers/Adjustments) */
+        .ps-sidebar { width: 300px; background: var(--ps-ui); border-left: 1px solid #111; display: flex; flex-direction: column; }
+        .ps-panel { padding: 15px; border-bottom: 1px solid #111; }
+        .ps-panel h4 { font-size: 11px; text-transform: uppercase; color: #888; margin-bottom: 15px; letter-spacing: 1px; }
+        
+        /* UI Elements */
+        .control-group { margin-bottom: 15px; }
+        label { font-size: 11px; color: #aaa; display: block; margin-bottom: 5px; }
+        input[type="range"] { width: 100%; accent-color: var(--gold); background: #444; height: 4px; border-radius: 2px; }
+        
+        .btn-commit { background: #28a745; color: white; border: none; padding: 12px; margin: 20px; border-radius: 4px; font-weight: bold; cursor: pointer; text-transform: uppercase; font-size: 12px; }
+        .btn-commit:hover { background: #218838; }
+        
+        /* Status Bar */
+        .ps-status { position: absolute; bottom: 0; left: 50px; right: 300px; height: 25px; background: var(--ps-ui); font-size: 10px; display: flex; align-items: center; padding: 0 15px; color: #666; }
     </style>
 </head>
 <body>
 
-    <div class="toolbar">
-        <div style="font-weight: 900; letter-spacing: 2px;">PBE COMMAND SUITE: VISUAL EDITOR</div>
+    <div class="ps-toolbar">
+        <div class="tool-icon active" title="Move Tool (V)">🖱️</div>
+        <div class="tool-icon" title="Text Tool (T)">T</div>
+        <div class="tool-icon" title="Crop/Scale">📐</div>
+        <div class="tool-icon" title="Layer Selection">🗂️</div>
     </div>
 
-    <canvas id="idCanvas" width="1012" height="638"></canvas>
+    <div class="ps-workspace">
+        <div id="wrapper" class="canvas-container">
+            <canvas id="psCanvas" width="1012" height="638"></canvas>
+        </div>
+        <div class="ps-status">PBE COMMAND SUITE | 100% | RGB/8 | Template: PBE-Vanguard-2026.png</div>
+    </div>
 
-    <div class="controls">
-        <div class="control-group">
-            <label>Photo Blending (Ghosting)</label>
-            <input type="range" id="opacity" min="0" max="1" step="0.01" value="1" oninput="updatePhoto()">
-            <label>Feathering (Soft Edges)</label>
-            <input type="range" id="blur" min="0" max="20" step="1" value="0" oninput="updatePhoto()">
+    <div class="ps-sidebar">
+        <div class="ps-panel">
+            <h4>Character Adjustments</h4>
+            <div class="control-group">
+                <label>3D Font Depth (Shadow)</label>
+                <input type="range" id="textDepth" min="0" max="12" value="4" oninput="updateUI()">
+            </div>
+            <div class="control-group">
+                <label>Font Size</label>
+                <input type="range" id="textSize" min="12" max="60" value="38" oninput="updateUI()">
+            </div>
         </div>
 
-        <div class="control-group">
-            <label>3D Font Depth</label>
-            <input type="range" id="fontShadow" min="0" max="10" step="1" value="3" oninput="updateText()">
-            <label>Font Size</label>
-            <input type="range" id="fontSize" min="10" max="50" step="1" value="24" oninput="updateText()">
+        <div class="ps-panel">
+            <h4>Layers & Blending</h4>
+            <div class="control-group">
+                <label>Layer Opacity</label>
+                <input type="range" id="layerOpacity" min="0.1" max="1" step="0.05" value="1" oninput="updateUI()">
+            </div>
+            <div class="control-group">
+                <label>Feathering (Edge Blur)</label>
+                <input type="range" id="layerBlur" min="0" max="10" value="0" oninput="updateUI()">
+            </div>
         </div>
 
-        <div class="control-group" style="align-items: center; justify-content: center;">
-            <input type="checkbox" id="saveMaster" checked>
-            <label for="saveMaster">Save as Master Blueprint</label>
+        <div class="ps-panel">
+            <h4>Identity Lock</h4>
+            <div style="font-size: 10px; color: var(--gold);">
+                UID: {{ w[6] }}<br>
+                Rank: {{ w[8] }}
+            </div>
         </div>
 
-        <button class="btn-print" onclick="finalizeAndPrint()">LOCK & EXECUTE FINAL PRINT</button>
+        <button class="btn-commit" onclick="saveToRegistry()">Commit Changes & Print</button>
     </div>
 
     <script>
-        const canvas = new fabric.Canvas('idCanvas');
-        let bgImg, personImg;
+        const canvas = new fabric.Canvas('psCanvas');
+        let personnelPhoto, pbeName;
 
-        // 1. Load Background Template
-        fabric.Image.fromURL('/static/template.png', function(img) {
-            bgImg = img;
-            img.set({ selectable: false, evented: false });
-            canvas.add(img);
-            canvas.sendToBack(img);
-            loadPersonnelData();
+        // Load Background & Data
+        fabric.Image.fromURL('/static/template.png', function(bg) {
+            bg.set({ selectable: false, evented: false });
+            canvas.add(bg);
+            canvas.sendToBack(bg);
+            initWorkspace();
         });
 
-        // 2. Load Personnel Data (Placeholder logic - will be dynamic)
-        function loadPersonnelData() {
-            // This is where the 3D Gold Font is created
-            const nameText = new fabric.Text('GILBERT ARKUH', {
-                left: 300, top: 150,
+        function initWorkspace() {
+            // Load Dynamic Name
+            pbeName = new fabric.IText("{{ w[2] }} {{ w[1] }}", {
+                left: 260, top: 170,
+                fontFamily: 'Arial Black',
+                fontSize: 38,
                 fill: '#C59B27',
-                fontFamily: 'Arial',
                 fontWeight: 'bold',
-                fontSize: 40,
-                shadow: new fabric.Shadow({ color: 'rgba(0,0,0,0.6)', blur: 3, offsetX: 3, offsetY: 3 })
+                editable: true
             });
-            canvas.add(nameText);
+
+            // Load Dynamic Photo (Cloudinary)
+            fabric.Image.fromURL("{{ w[13] }}", function(img) {
+                personnelPhoto = img;
+                img.scaleToWidth(280);
+                img.set({ left: 650, top: 120 });
+                canvas.add(img);
+                canvas.setActiveObject(img);
+                updateUI();
+            }, { crossOrigin: 'anonymous' });
+
+            canvas.add(pbeName);
+            canvas.renderAll();
         }
 
-        function finalizeAndPrint() {
-            // Take the High-Def Snapshot
-            const dataURL = canvas.toDataURL({ format: 'png', quality: 1 });
-            
-            // Send back to Render
+        function updateUI() {
+            if(pbeName) {
+                const depth = document.getElementById('textDepth').value;
+                pbeName.set('shadow', new fabric.Shadow({
+                    color: 'rgba(0,0,0,0.9)', blur: 2, offsetX: depth, offsetY: depth
+                }));
+                pbeName.set('fontSize', parseInt(document.getElementById('textSize').value));
+            }
+            if(personnelPhoto) {
+                personnelPhoto.set('opacity', parseFloat(document.getElementById('layerOpacity').value));
+            }
+            canvas.renderAll();
+        }
+
+        function saveToRegistry() {
+            const dataURL = canvas.toDataURL({ format: 'png', quality: 1.0 });
             fetch('/process-visual-print', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    image: dataURL,
-                    uid: '{{ uid }}',
-                    save_master: document.getElementById('saveMaster').checked
-                })
-            }).then(res => {
-                if(res.ok) window.location.href = '/admin-dashboard';
+                body: JSON.stringify({ image: dataURL, uid: "{{ w[6] }}" })
+            }).then(res => res.json()).then(data => {
+                if(data.status === "success") window.location.href = data.redirect;
             });
         }
-
-        // Functions for sliders would go here
-        function updatePhoto() { /* Logic to adjust Fabric.js layers */ }
-        function updateText() { /* Logic to adjust 3D shadows */ }
     </script>
 </body>
 </html>
