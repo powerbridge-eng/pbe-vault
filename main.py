@@ -540,19 +540,19 @@ def print_id(pbe_uid):
                 if req2.status_code == 200 and 'image' in req2.headers.get('Content-Type', '').lower():
                     profile_img = ImageReader(BytesIO(req2.content))
         except Exception as e: 
-            print(f"Image Download Firewall: {e}")
+            pass
 
     # --- 3. DUAL-PORTRAIT RENDERING (Watermark Left, Solid Right) ---
     if profile_img:
         try:
-            # Ghost/Watermark Portrait on the left
+            # Ghost/Watermark Portrait on the left (Faint, behind text)
             c.saveState()
-            c.setFillAlpha(0.15)
-            c.drawImage(profile_img, 0.05*inch, 0.1*inch, width=1.1*inch, height=1.4*inch, mask='auto')
+            c.setFillAlpha(0.12)
+            c.drawImage(profile_img, 0.0*inch, 0.0*inch, width=1.5*inch, height=1.9*inch, mask='auto')
             c.restoreState()
             
-            # Main Solid Portrait on the right
-            c.drawImage(profile_img, 2.3*inch, 0.6*inch, width=0.9*inch, height=1.15*inch, mask='auto')
+            # Main Solid Portrait on the right (Large size to match mockup)
+            c.drawImage(profile_img, 2.15*inch, 0.50*inch, width=1.15*inch, height=1.45*inch, mask='auto')
         except Exception as e:
             print(f"ReportLab Memory Error: {e}")
 
@@ -564,7 +564,7 @@ def print_id(pbe_uid):
     except:
         font_name = 'Helvetica-Bold' 
 
-    GOLD_HEX = colors.HexColor("#B8860B") # Exact Dark Gold/Bronze Matrix match
+    GOLD_HEX = colors.HexColor("#C59B27") # Calibrated Gold to match template
 
     def draw_field(label, value, y_pos):
         c.setFont(font_name, 6)
@@ -573,49 +573,53 @@ def print_id(pbe_uid):
         c.setFillColor(GOLD_HEX)
         c.drawString(0.85*inch, y_pos, str(value))
 
-    # Header
+    # Top Header (If blank template doesn't have it)
     c.setFont(font_name, 6)
-    c.setFillColor(GOLD_HEX)
+    c.setFillColor(colors.HexColor("#A9A9A9"))
     c.drawCentredString(3.375/2 * inch, 1.95*inch, "POWER BRIDGE ENGINEERING - STAFF IDENTITY CARD")
 
     # Left-Side Personnel Matrix
-    draw_field("Surname", w[1], 1.75*inch)
-    draw_field("Firstname", w[2], 1.60*inch)
-    draw_field("Gender", w[4], 1.45*inch)
-    draw_field("Nationality", w[5], 1.30*inch)
-    draw_field("ID Number", w[6], 1.15*inch)
-    draw_field("License", w[7], 1.00*inch)
+    y_start = 1.75
+    spacing = 0.16
+    draw_field("Surname", w[1], y_start*inch)
+    draw_field("Firstname", w[2], (y_start - spacing)*inch)
+    draw_field("Gender", w[4], (y_start - 2*spacing)*inch)
+    draw_field("Nationality", w[5], (y_start - 3*spacing)*inch)
+    draw_field("ID Number", w[6], (y_start - 4*spacing)*inch)
+    draw_field("License", w[7], (y_start - 5*spacing)*inch)
     
     # Rank & Issue Date (Stacked on left)
+    stack_y = y_start - 6.2*spacing
     c.setFont(font_name, 6)
     c.setFillColor(colors.black)
-    c.drawString(0.15*inch, 0.85*inch, "Rank")
+    c.drawString(0.15*inch, stack_y*inch, "Rank")
     c.setFillColor(GOLD_HEX)
-    c.drawString(0.15*inch, 0.75*inch, str(w[8]))
+    c.drawString(0.15*inch, (stack_y - 0.1)*inch, str(w[8]))
 
+    stack_y2 = stack_y - 0.25
     c.setFillColor(colors.black)
-    c.drawString(0.15*inch, 0.60*inch, "Date of Issuance")
+    c.drawString(0.15*inch, stack_y2*inch, "Date of Issuance")
     c.setFillColor(GOLD_HEX)
-    c.drawString(0.15*inch, 0.50*inch, str(w[19]))
+    c.drawString(0.15*inch, (stack_y2 - 0.1)*inch, str(w[19]))
 
     # --- 5. SIGNATURE & EXPIRY PROTOCOL (Bottom Right) ---
     c.setFillColor(colors.black)
-    c.drawCentredString(2.75*inch, 0.45*inch, "Date of Expiry")
+    c.drawCentredString(2.7*inch, 0.40*inch, "Date of Expiry")
     c.setFillColor(GOLD_HEX)
-    c.drawCentredString(2.75*inch, 0.35*inch, str(w[20]))
+    c.drawCentredString(2.7*inch, 0.30*inch, str(w[20]))
     
     c.setFont("Helvetica-Oblique", 11)
     c.setFillColor(colors.black)
-    c.drawCentredString(2.75*inch, 0.18*inch, f"J. {w[1].capitalize()}") # Signature styling
+    c.drawCentredString(2.7*inch, 0.13*inch, f"J. {w[1].capitalize()}")
     
-    c.setFont(font_name, 4)
-    c.drawCentredString(2.75*inch, 0.08*inch, "OFFICIALS SIGNATURE")
+    c.setFont(font_name, 4.5)
+    c.drawCentredString(2.7*inch, 0.05*inch, "OFFICIALS SIGNATURE")
     
     # --- 6. CENTERED SECURITY QR CODE ---
     safe_uid = quote(w[6])
     qr_code = qr.QrCodeWidget(f"{request.url_root}verify/{safe_uid}")
     bounds = qr_code.getBounds()
-    size = 45 # Exact pixel scale to fit between bottom graphics
+    size = 45 # Exact pixel scale
     d = Drawing(size, size, transform=[size/(bounds[2]-bounds[0]),0,0,size/(bounds[3]-bounds[1]),0,0])
     d.add(qr_code)
     d.drawOn(c, 1.37*inch, 0.05*inch)
