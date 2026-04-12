@@ -486,7 +486,7 @@ def delete_cmd(uid):
     conn.commit(); cur.close(); conn.close(); log_soul_action("DELETE", f"Purged PBE-ID: {uid}")
     return redirect(url_for('admin_dashboard'))
 
-# --- 7. ROBOT MAPPING LOGIC (MEMORY OPTIMIZED & DYNAMIC TEMPLATE) ---
+# --- 7. ROBOT MAPPING LOGIC (EXACT VISUAL CALIBRATION & RAM OPTIMIZED) ---
 @app.route("/admin/print-id/<pbe_uid>")
 def print_id(pbe_uid):
     if not session.get('role'): return redirect(url_for('admin_login'))
@@ -501,14 +501,12 @@ def print_id(pbe_uid):
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=(3.375*inch, 2.125*inch))
     
-    # -------------------------------------------------------------------
-    # FIX 1: DYNAMIC TEMPLATE RADAR (Will find it regardless of exact name)
-    # -------------------------------------------------------------------
+    # --- 1. DYNAMIC TEMPLATE RADAR ---
     template_found = False
     static_folder = os.path.join(app.root_path, 'static')
     if os.path.exists(static_folder):
         for filename in os.listdir(static_folder):
-            if 'template' in filename.lower() or 'power' in filename.lower():
+            if 'template' in filename.lower() or 'power' in filename.lower() or '1000182625' in filename.lower():
                 if filename.lower().endswith('.png') or filename.lower().endswith('.jpg'):
                     exact_path = os.path.join(static_folder, filename)
                     try:
@@ -520,9 +518,7 @@ def print_id(pbe_uid):
     if not template_found:
         print("CRITICAL WARNING: No background template image detected in the static folder!")
     
-    # -------------------------------------------------------------------
-    # FIX 2: CLOUDINARY RAM-OPTIMIZATION (Prevents Server SIGKILL)
-    # -------------------------------------------------------------------
+    # --- 2. CLOUDINARY RAM-OPTIMIZATION (Prevents Server SIGKILL) ---
     photo_url = w[13]
     profile_img = None
     
@@ -532,36 +528,35 @@ def print_id(pbe_uid):
         
         if "cloudinary" in photo_url and "/upload/" in photo_url:
             parts = photo_url.split('/upload/')
-            # We command Cloudinary to shrink the width to 300px BEFORE sending it to ReportLab.
-            # This completely stops the zlib.compress Out-Of-Memory SIGKILL error.
             bg_removed_url = f"{parts[0]}/upload/e_background_removal/w_300,c_scale,f_png/{parts[1]}"
             optimized_raw_url = f"{parts[0]}/upload/w_300,c_scale,f_png/{parts[1]}"
 
         try: 
-            # Step A: Fetch optimized AI image
             req = requests.get(bg_removed_url, timeout=8)
             if req.status_code == 200 and 'image' in req.headers.get('Content-Type', '').lower():
                 profile_img = ImageReader(BytesIO(req.content))
             else:
-                # Step B: Instant Fallback to optimized raw image
-                print("Cloudinary AI busy. Using RAM-optimized raw photo fallback.")
                 req2 = requests.get(optimized_raw_url, timeout=5)
                 if req2.status_code == 200 and 'image' in req2.headers.get('Content-Type', '').lower():
                     profile_img = ImageReader(BytesIO(req2.content))
         except Exception as e: 
             print(f"Image Download Firewall: {e}")
 
-    # Draw the RAM-Optimized picture
+    # --- 3. DUAL-PORTRAIT RENDERING (Watermark Left, Solid Right) ---
     if profile_img:
         try:
+            # Ghost/Watermark Portrait on the left
             c.saveState()
-            c.setFillAlpha(0.2)
-            c.drawImage(profile_img, 0.15*inch, 0.2*inch, width=0.6*inch, height=0.75*inch)
+            c.setFillAlpha(0.15)
+            c.drawImage(profile_img, 0.05*inch, 0.1*inch, width=1.1*inch, height=1.4*inch, mask='auto')
             c.restoreState()
-            c.drawImage(profile_img, 2.45*inch, 0.45*inch, width=0.75*inch, height=1.0*inch)
+            
+            # Main Solid Portrait on the right
+            c.drawImage(profile_img, 2.3*inch, 0.6*inch, width=0.9*inch, height=1.15*inch, mask='auto')
         except Exception as e:
             print(f"ReportLab Memory Error: {e}")
 
+    # --- 4. TYPOGRAPHY & GOLD TEXT INJECTION ---
     try:
         font_path = os.path.join(app.root_path, 'static', 'MyriadPro-Bold.ttf')
         pdfmetrics.registerFont(TTFont('MyriadPro', font_path))
@@ -569,26 +564,61 @@ def print_id(pbe_uid):
     except:
         font_name = 'Helvetica-Bold' 
 
+    GOLD_HEX = colors.HexColor("#B8860B") # Exact Dark Gold/Bronze Matrix match
+
+    def draw_field(label, value, y_pos):
+        c.setFont(font_name, 6)
+        c.setFillColor(colors.black)
+        c.drawString(0.15*inch, y_pos, label)
+        c.setFillColor(GOLD_HEX)
+        c.drawString(0.85*inch, y_pos, str(value))
+
+    # Header
+    c.setFont(font_name, 6)
+    c.setFillColor(GOLD_HEX)
+    c.drawCentredString(3.375/2 * inch, 1.95*inch, "POWER BRIDGE ENGINEERING - STAFF IDENTITY CARD")
+
+    # Left-Side Personnel Matrix
+    draw_field("Surname", w[1], 1.75*inch)
+    draw_field("Firstname", w[2], 1.60*inch)
+    draw_field("Gender", w[4], 1.45*inch)
+    draw_field("Nationality", w[5], 1.30*inch)
+    draw_field("ID Number", w[6], 1.15*inch)
+    draw_field("License", w[7], 1.00*inch)
+    
+    # Rank & Issue Date (Stacked on left)
     c.setFont(font_name, 6)
     c.setFillColor(colors.black)
+    c.drawString(0.15*inch, 0.85*inch, "Rank")
+    c.setFillColor(GOLD_HEX)
+    c.drawString(0.15*inch, 0.75*inch, str(w[8]))
 
-    val_x = 0.85 * inch
-    c.drawString(val_x, 1.70*inch, f"{w[2]}")  
-    c.drawString(val_x, 1.55*inch, f"{w[1]}")  
-    c.drawString(val_x, 1.40*inch, f"{w[4]}")  
-    c.drawString(val_x, 1.25*inch, f"{w[5]}")  
-    c.drawString(val_x, 1.10*inch, f"{w[6]}")  
-    c.drawString(val_x, 0.95*inch, f"{w[7]}")  
-    c.drawString(val_x, 0.80*inch, f"{w[8]}")  
-    c.drawString(val_x, 0.65*inch, f"{w[19]}") 
-    c.drawCentredString(1.68*inch, 0.45*inch, f"{w[20]}") 
+    c.setFillColor(colors.black)
+    c.drawString(0.15*inch, 0.60*inch, "Date of Issuance")
+    c.setFillColor(GOLD_HEX)
+    c.drawString(0.15*inch, 0.50*inch, str(w[19]))
+
+    # --- 5. SIGNATURE & EXPIRY PROTOCOL (Bottom Right) ---
+    c.setFillColor(colors.black)
+    c.drawCentredString(2.75*inch, 0.45*inch, "Date of Expiry")
+    c.setFillColor(GOLD_HEX)
+    c.drawCentredString(2.75*inch, 0.35*inch, str(w[20]))
     
+    c.setFont("Helvetica-Oblique", 11)
+    c.setFillColor(colors.black)
+    c.drawCentredString(2.75*inch, 0.18*inch, f"J. {w[1].capitalize()}") # Signature styling
+    
+    c.setFont(font_name, 4)
+    c.drawCentredString(2.75*inch, 0.08*inch, "OFFICIALS SIGNATURE")
+    
+    # --- 6. CENTERED SECURITY QR CODE ---
     safe_uid = quote(w[6])
     qr_code = qr.QrCodeWidget(f"{request.url_root}verify/{safe_uid}")
     bounds = qr_code.getBounds()
-    d = Drawing(35, 35, transform=[35./(bounds[2]-bounds[0]),0,0,35./(bounds[3]-bounds[1]),0,0])
+    size = 45 # Exact pixel scale to fit between bottom graphics
+    d = Drawing(size, size, transform=[size/(bounds[2]-bounds[0]),0,0,size/(bounds[3]-bounds[1]),0,0])
     d.add(qr_code)
-    d.drawOn(c, 1.45*inch, 0.08*inch)
+    d.drawOn(c, 1.37*inch, 0.05*inch)
     
     c.showPage()
     c.save()
