@@ -2,8 +2,13 @@ import os, random, string, re, requests, psycopg2, cloudinary, cloudinary.upload
 from urllib.parse import quote
 from flask import Flask, request, jsonify, render_template_string, render_template, send_file, redirect, url_for, session, abort
 from reportlab.pdfgen import canvas
+from reportlab.graphics.barcode import qr
+from reportlab.graphics.shapes import Drawing
 from reportlab.lib.units import inch
+from reportlab.lib import colors
 from reportlab.lib.utils import ImageReader
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfbase import pdfmetrics
 from io import BytesIO
 
 # --- 1. CORE CONFIGURATION ---
@@ -27,26 +32,36 @@ def get_db():
         except: time.sleep(2)
     return None
 
+# --- 2. PERMANENT DATABASE DOCTOR & BLUEPRINT BRIDGE ---
 def init_db():
     conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='pbe_registry_2026' AND column_name='visual_blueprint';")
-    if not cur.fetchone():
-        cur.execute("ALTER TABLE pbe_registry_2026 ADD COLUMN visual_blueprint TEXT DEFAULT '{}';")
+    cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='pbe_registry_2026' AND column_name='gender';")
+    is_updated = cur.fetchone()
+    
+    if not is_updated:
+        cur.execute("DROP TABLE IF EXISTS pbe_registry_2026 CASCADE;")
+        cur.execute("DROP TABLE IF EXISTS pbe_audit_2026 CASCADE;")
+        cur.execute("DROP TABLE IF EXISTS pbe_ip_blacklist CASCADE;")
+        print("SYSTEM OVERRIDE: Rebuilding for Vanguard Bridge.")
+        
     cur.execute("""
         CREATE TABLE IF NOT EXISTS pbe_registry_2026 (
             id SERIAL PRIMARY KEY, surname TEXT, firstname TEXT, dob TEXT,
-            gender TEXT, nationality TEXT, pbe_uid TEXT UNIQUE, pbe_license TEXT UNIQUE, 
-            rank TEXT, department TEXT, phone_no TEXT, email TEXT, ghana_card_no TEXT, 
-            photo_url TEXT, ghana_card_url TEXT, status TEXT DEFAULT 'PENDING', 
-            otp_code TEXT, region TEXT, station TEXT, issuance_date DATE, expiry_date DATE,
+            gender TEXT, nationality TEXT,
+            pbe_uid TEXT UNIQUE, pbe_license TEXT UNIQUE, rank TEXT, department TEXT,
+            phone_no TEXT, email TEXT, ghana_card_no TEXT, photo_url TEXT, ghana_card_url TEXT,
+            status TEXT DEFAULT 'PENDING', otp_code TEXT, region TEXT, station TEXT,
+            issuance_date DATE, expiry_date DATE,
             visual_blueprint TEXT DEFAULT '{}'
         );
     """)
+    cur.execute("CREATE TABLE IF NOT EXISTS pbe_audit_2026 (id SERIAL PRIMARY KEY, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, action TEXT, actor TEXT, details TEXT, ip_address TEXT, device_info TEXT);")
+    cur.execute("CREATE TABLE IF NOT EXISTS pbe_ip_blacklist (id SERIAL PRIMARY KEY, ip_address TEXT UNIQUE, locked_until TIMESTAMP);")
     conn.commit(); cur.close(); conn.close()
 
 with app.app_context(): init_db()
 
-# --- 2. PERMANENT VISUAL BRIDGE ---
+# --- 3. THE PERMANENT VANGUARD SYNC BRIDGE ---
 @app.route("/admin/visual-editor/<uid>")
 def visual_editor(uid):
     if not session.get('role'): return redirect(url_for('admin_login'))
@@ -54,8 +69,8 @@ def visual_editor(uid):
     cur.execute("SELECT * FROM pbe_registry_2026 WHERE pbe_uid = %s", (uid,))
     w = cur.fetchone(); cur.close(); conn.close()
     if not w: abort(404)
-    # The blueprint (w[21]) contains the Photoshop memory
-    return render_template('editor.html', uid=uid, w=w, blueprint=w[21])
+    # Renders your Advance Editor Cockpit
+    return render_template('editor.html', uid=uid, w=w)
 
 @app.route("/process-visual-print", methods=['POST'])
 def process_visual_print():
@@ -83,39 +98,35 @@ def download_final_pdf(uid):
     session.pop(f'print_ready_{uid}', None)
     return send_file(buffer, mimetype='application/pdf', download_name=f"PBE_ID_{uid}.pdf")
 
-# --- 3. EXECUTIVE DASHBOARD (RESTORED TO SCREENSHOT STYLE) ---
-PBE_GUILDS = ["ELECTRICAL ENGINEERING", "SOLAR & ENERGY", "PLUMBING & HYDRAULICS", "MASONRY & CONSTRUCTION", "MECHANICAL & AUTO", "PBE TV", "CCTV & SECURITY", "ICT & SOFTWARE", "HVAC & COOLING", "GENERAL TECHNICAL"]
-GHANA_REGIONS = ["Greater Accra", "Ashanti", "Western", "Central", "Eastern", "Volta", "Northern", "Upper East", "Upper West", "Bono", "Bono East", "Ahafo", "Savannah", "North East", "Oti", "Western North"]
-
+# --- 4. EXECUTIVE UI DESIGN ---
 BASE_HTML = """
 <!DOCTYPE html>
 <html>
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
-    <title>PBE Command Center</title>
+    <title>PBE Supreme Command Center</title>
     <style>
-        :root { --navy: #2c3e50; --gold: #ffc107; --bg: #f8f9fa; }
-        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); margin: 0; padding-bottom: 50px; }
-        .header { background: #34495e; color: white; padding: 20px; text-align: center; border-bottom: 4px solid var(--gold); }
-        .container { max-width: 1400px; margin: auto; padding: 20px; }
-        .search-container { display: flex; gap: 10px; margin-bottom: 25px; align-items: center; }
-        .search-bar { flex: 1; padding: 12px; border-radius: 8px; border: 1px solid #ddd; outline: none; font-size: 14px; }
-        .metric-card { background: white; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
-        .metric-title { font-size: 12px; font-weight: 800; color: #7f8c8d; text-transform: uppercase; margin-bottom: 15px; display: flex; align-items: center; gap: 10px; }
-        .metric-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
-        .metric-item { background: #fff; border: 1px solid #eee; border-radius: 8px; padding: 12px; font-size: 11px; font-weight: 700; color: #2c3e50; display: flex; justify-content: space-between; align-items: center; }
-        .registry-table { width: 100%; border-collapse: collapse; background: white; border-radius: 12px; overflow: hidden; }
-        .registry-table th { background: #fdfdfd; text-align: left; padding: 15px; border-bottom: 2px solid #eee; font-size: 12px; color: #95a5a6; }
-        .registry-table td { padding: 15px; border-bottom: 1px solid #f9f9f9; font-size: 13px; }
-        .btn-suite { padding: 8px 14px; border-radius: 6px; color: white; text-decoration: none; font-size: 10px; font-weight: 900; margin-right: 5px; display: inline-block; text-transform: uppercase; }
-        .bg-print { background: #3498db; } .bg-wa { background: #27ae60; } .bg-promote { background: #f1c40f; color: #000; } .bg-delete { background: #e74c3c; } .bg-review { background: #34495e; }
-        .fab { position: fixed; bottom: 30px; right: 30px; width: 60px; height: 60px; background: #2c3e50; color: #ffc107; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; box-shadow: 0 10px 20px rgba(0,0,0,0.2); text-decoration: none; }
+        :root { --navy: #343a40; --gold: #ffc107; --bg: #f4f6f9; --text: #495057; }
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; background: var(--bg); margin: 0; color: var(--text); padding-bottom: 100px; }
+        .header { background: var(--navy); color: white; padding: 25px; text-align: center; border-bottom: 4px solid var(--gold); }
+        .container { max-width: 1300px; margin: auto; padding: 15px; }
+        .search-container { display: flex; gap: 10px; margin-bottom: 20px; align-items: center; flex-wrap: wrap; }
+        .search-bar { flex: 1; padding: 15px; border-radius: 10px; border: 1px solid #dee2e6; font-size: 16px; outline: none; background: #fff; min-width: 280px; }
+        .sms-balance { background: #fff; padding: 15px; border-radius: 10px; border: 1px solid #dee2e6; font-weight: bold; }
+        .section-card { background: #fff; border-radius: 15px; padding: 20px; margin-bottom: 20px; border: 1px solid #e9ecef; }
+        .section-title { font-size: 13px; font-weight: 800; color: #6c757d; text-transform: uppercase; margin-bottom: 15px; border-left: 4px solid var(--navy); padding-left: 10px; }
+        .matrix-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+        .matrix-item { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 12px; text-align: center; font-size: 11px; font-weight: bold; color: var(--navy); }
+        .btn-cmd { padding: 8px 12px; border-radius: 6px; color: white; text-decoration: none; font-size: 10px; font-weight: bold; margin: 2px; display: inline-block; border: none; cursor: pointer; text-align: center;}
+        .bg-blue { background: #007bff; } .bg-wa { background: #28a745; } .bg-red { background: #dc3545; } .bg-sus { background: #6c757d; } .bg-gold { background: var(--gold); color: #000; } .bg-navy { background: var(--navy); } .bg-orange { background: #fd7e14; }
+        .fab-zone { position: fixed; bottom: 30px; right: 30px; display: flex; flex-direction: column; gap: 12px; z-index: 1000; }
+        .fab { width: 60px; height: 60px; background: var(--navy); color: var(--gold); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); text-decoration: none; border: 2px solid var(--gold); }
     </style>
 </head>
 <body>
     <div class="header">
-        <div style="font-size: 24px; font-weight: 900; letter-spacing: 2px;">PBE COMMAND CENTER</div>
-        <div style="font-size: 11px; color: var(--gold); margin-top: 5px;">OPERATOR: {{ session.get('op_name', 'SYSTEM') }}</div>
+        <div style="font-size: 22px; font-weight: 900; letter-spacing: 2px;">PBE COMMAND CENTER</div>
+        <div style="font-size: 12px; margin-top: 5px; color: var(--gold);">OPERATOR: {{ session.get('op_name', 'SYSTEM') }}</div>
     </div>
     <div class="container">{% block content %}{% endblock %}</div>
 </body>
@@ -125,6 +136,7 @@ BASE_HTML = """
 @app.route("/admin-dashboard")
 def admin_dashboard():
     if not session.get('role'): return redirect(url_for('admin_login'))
+    role = session.get('role')
     conn = get_db(); cur = conn.cursor()
     cur.execute("SELECT * FROM pbe_registry_2026 WHERE surname IS NOT NULL ORDER BY id DESC")
     workers = cur.fetchall()
@@ -143,46 +155,50 @@ def admin_dashboard():
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """
         <div class="search-container">
             <input type="text" class="search-bar" placeholder="Search Master Registry...">
-            <button class="btn-suite bg-review" style="padding:15px; font-size:12px;">☁️ CLOUDINARY</button>
-            <div style="font-weight:bold; color:green; background:white; padding:12px; border-radius:8px; border:1px solid #ddd;">SMS: OFFLINE</div>
+            <a href="https://cloudinary.com/console" target="_blank" class="btn-cmd bg-navy" style="padding:15px; font-size:14px;">☁️ CLOUDINARY</a>
+            <div class="sms-balance">SMS: <span style="color:green;">OFFLINE</span></div>
         </div>
-
-        <div class="metric-card">
-            <div class="metric-title">🔵 16-REGION GLOBAL METRIC</div>
-            <div class="metric-grid">
+        
+        <div class="section-card">
+            <div class="section-title">🌍 16-REGION GLOBAL METRIC</div>
+            <div class="matrix-grid">
                 {% for reg, count in reg_stats.items() %}
-                <div class="metric-item"><span>{{reg}}:</span> <b style="color:#e74c3c;">{{count}}</b></div>
+                <div class="matrix-item" style="text-align:left;">
+                    {{reg}}: <b style="color:red; float:right;">{{count}}</b>
+                </div>
                 {% endfor %}
             </div>
         </div>
 
-        <div class="metric-card">
-            <div class="metric-title">🛠️ TECHNICAL GUILDS WORKFORCE METRIC</div>
-            <div class="metric-grid">
+        <div class="section-card">
+            <div class="section-title">🛠️ TECHNICAL GUILDS WORKFORCE METRIC</div>
+            <div class="matrix-grid">
                 {% for guild, count in guild_stats.items() %}
-                <div class="metric-item"><span>{{guild}}</span> <b style="color:#e74c3c;">{{count}}</b></div>
+                <div class="matrix-item" style="text-align:left;">
+                    {{guild}} <b style="color:red; float:right;">{{count}}</b>
+                </div>
                 {% endfor %}
             </div>
         </div>
 
-        <div class="metric-card">
-            <div class="metric-title">👤 PERSONNEL REGISTRY CONTROL</div>
+        <div class="section-card">
+            <div class="section-title">👥 PERSONNEL REGISTRY CONTROL</div>
             <div style="overflow-x:auto;">
                 <table class="registry-table">
                     <thead><tr><th>PBE-ID / LICENSE</th><th>NAME</th><th>RANK & DEPT</th><th>STATUS</th><th>COMMAND SUITE</th></tr></thead>
                     <tbody>
                         {% for w in workers %}
-                        <tr>
-                            <td>ID: <b>{{ w[6] }}</b><br><small>{{ w[7] }}</small></td>
+                        <tr class="worker-row">
+                            <td>ID: <b>{{ w[6] }}</b><br>LIC: <small>{{ w[7] }}</small></td>
                             <td>{{ w[1] }}, {{ w[2] }}</td>
-                            <td><b style="color:#e74c3c;">{{ w[8] }}</b><br><small>{{ w[9] }}</small></td>
-                            <td><b style="color:#27ae60;">{{ w[15] }}</b></td>
+                            <td><b style="color:red;">{{ w[8] }}</b><br><small>{{ w[9] }}</small></td>
+                            <td><b style="color:#28a745;">{{ w[15] }}</b></td>
                             <td>
-                                <a href="{{ url_for('visual_editor', uid=w[6]) }}" class="btn-suite bg-print">PRINT</a>
-                                <a href="#" class="btn-suite bg-review">REVIEW DOSSIER</a>
-                                <a href="#" class="btn-suite bg-wa">WA</a>
-                                <a href="#" class="btn-suite bg-promote">PROMOTE</a>
-                                <a href="#" class="btn-suite bg-delete">DELETE</a>
+                                <a href="{{ url_for('visual_editor', uid=w[6]) }}" class="btn-cmd bg-blue">PRINT</a>
+                                <a href="#" class="btn-cmd bg-navy">REVIEW DOSSIER</a>
+                                <a href="#" class="btn-cmd bg-wa">WA</a>
+                                <a href="#" class="btn-cmd bg-gold">PROMOTE</a>
+                                <a href="#" class="btn-cmd bg-red">DELETE</a>
                             </td>
                         </tr>
                         {% endfor %}
@@ -190,16 +206,17 @@ def admin_dashboard():
                 </table>
             </div>
         </div>
-        <a href="/admin/invite" class="fab">＋</a>
-    """), reg_stats=reg_stats, guild_stats=guild_stats, workers=workers)
+        <div class="fab-zone"><a href="/admin/invite" class="fab">＋</a></div>
+    """), reg_stats=reg_stats, guild_stats=guild_stats, workers=workers, role=role)
 
+# (Keeping your login and other logic below as is...)
 @app.route("/pbe-vanguard-hq-2026", methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST':
         if request.form.get('password') == ADMIN_PASSWORD:
             session['role'], session['op_name'] = 'ADMIN', request.form.get('op_name', 'ADMIN').upper()
             return redirect(url_for('admin_dashboard'))
-    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", '<div style="text-align:center; padding:100px;"><h3>HQ SYSTEM LOCK</h3><form method="POST"><input name="op_name" placeholder="Operator Name" required><br><input type="password" name="password" placeholder="Key" required><br><button class="btn-suite bg-review" style="width:200px; padding:15px;">UNLOCK</button></form></div>'))
+    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", '<div class="section-card" style="max-width:400px; margin:auto; text-align:center;"><h3>HQ SYSTEM LOCK</h3><form method="POST"><input name="op_name" placeholder="Operator Name" required><br><input type="password" name="password" placeholder="Key" required><br><button class="btn-cmd bg-navy">UNLOCK</button></form></div>'))
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
