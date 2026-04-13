@@ -2,13 +2,8 @@ import os, random, string, re, requests, psycopg2, cloudinary, cloudinary.upload
 from urllib.parse import quote
 from flask import Flask, request, jsonify, render_template_string, render_template, send_file, redirect, url_for, session, abort
 from reportlab.pdfgen import canvas
-from reportlab.graphics.barcode import qr
-from reportlab.graphics.shapes import Drawing
 from reportlab.lib.units import inch
-from reportlab.lib import colors
 from reportlab.lib.utils import ImageReader
-from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.pdfbase import pdfmetrics
 from io import BytesIO
 
 # --- 1. CORE CONFIGURATION ---
@@ -32,14 +27,13 @@ def get_db():
         except: time.sleep(2)
     return None
 
-# --- 2. THE DATABASE DOCTOR & BRIDGE SYNC ---
+# --- 2. PERMANENT DATABASE DOCTOR & BRIDGE SYNC ---
 def init_db():
     conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='pbe_registry_2026' AND column_name='gender';")
+    cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='pbe_registry_2026' AND column_name='visual_blueprint';")
     if not cur.fetchone():
-        cur.execute("DROP TABLE IF EXISTS pbe_registry_2026 CASCADE;")
-        print("SYSTEM OVERRIDE: Rebuilding Database.")
-        
+        cur.execute("ALTER TABLE pbe_registry_2026 ADD COLUMN visual_blueprint TEXT DEFAULT '{}';")
+    
     cur.execute("""
         CREATE TABLE IF NOT EXISTS pbe_registry_2026 (
             id SERIAL PRIMARY KEY, surname TEXT, firstname TEXT, dob TEXT,
@@ -50,8 +44,7 @@ def init_db():
             visual_blueprint TEXT DEFAULT '{}'
         );
     """)
-    cur.execute("CREATE TABLE IF NOT EXISTS pbe_audit_2026 (id SERIAL PRIMARY KEY, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, action TEXT, actor TEXT, details TEXT, ip_address TEXT, device_info TEXT);")
-    cur.execute("CREATE TABLE IF NOT EXISTS pbe_ip_blacklist (id SERIAL PRIMARY KEY, ip_address TEXT UNIQUE, locked_until TIMESTAMP);")
+    cur.execute("CREATE TABLE IF NOT EXISTS pbe_audit_2026 (id SERIAL PRIMARY KEY, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, action TEXT, actor TEXT, details TEXT, ip_address TEXT);")
     conn.commit(); cur.close(); conn.close()
 
 with app.app_context(): init_db()
@@ -90,29 +83,8 @@ def download_final_pdf(uid):
     session.pop(f'print_ready_{uid}', None)
     return send_file(buffer, mimetype='application/pdf', download_name=f"PBE_ID_{uid}.pdf")
 
-# --- 4. CORE ENGINE FUNCTIONS ---
-def log_soul_action(action, details):
-    role, op_name = session.get('role', 'SYSTEM'), session.get('op_name', 'Unknown')
-    actor = f"{role} ({op_name})"
-    ip = request.headers.get('X-Forwarded-For', request.remote_addr).split(',')[0].strip()
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("INSERT INTO pbe_audit_2026 (action, actor, details, ip_address) VALUES (%s, %s, %s, %s)", (action, actor, details, ip))
-    conn.commit(); cur.close(); conn.close()
-
-def is_blacklisted(ip):
-    conn = get_db(); cur = conn.cursor(); cur.execute("SELECT locked_until FROM pbe_ip_blacklist WHERE ip_address = %s", (ip,))
-    res = cur.fetchone(); cur.close(); conn.close()
-    return True if res and res[0] > datetime.datetime.now() else False
-
-def blacklist_ip(ip):
-    lock_time = datetime.datetime.now() + datetime.timedelta(hours=72)
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("INSERT INTO pbe_ip_blacklist (ip_address, locked_until) VALUES (%s, %s) ON CONFLICT (ip_address) DO UPDATE SET locked_until = %s", (ip, lock_time, lock_time))
-    conn.commit(); cur.close(); conn.close()
-
-# --- 5. DASHBOARD & UI ---
+# --- 4. EXECUTIVE DASHBOARD DATA ---
 PBE_GUILDS = ["ELECTRICAL ENGINEERING", "SOLAR & ENERGY", "PLUMBING & HYDRAULICS", "MASONRY & CONSTRUCTION", "MECHANICAL & AUTO", "PBE TV", "CCTV & SECURITY", "ICT & SOFTWARE", "HVAC & COOLING", "GENERAL TECHNICAL"]
-PBE_RANKS = ["Supreme Commander / CEO", "General Manager", "Chief Engineer", "Project Commander", "Warrant Supervisor", "Senior Master Technician", "Squad Supervisor", "Lead Technician", "Field Technician", "Engineering Recruit"]
 GHANA_REGIONS = ["Greater Accra", "Ashanti", "Western", "Central", "Eastern", "Volta", "Northern", "Upper East", "Upper West", "Bono", "Bono East", "Ahafo", "Savannah", "North East", "Oti", "Western North"]
 
 BASE_HTML = """
@@ -120,20 +92,23 @@ BASE_HTML = """
 <html>
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
-    <title>PBE Supreme Command Center</title>
+    <title>PBE Command Center</title>
     <style>
         :root { --navy: #343a40; --gold: #ffc107; --bg: #f4f6f9; --text: #495057; }
         body { font-family: 'Segoe UI', sans-serif; background: var(--bg); margin: 0; color: var(--text); padding-bottom: 100px; }
         .header { background: var(--navy); color: white; padding: 25px; text-align: center; border-bottom: 4px solid var(--gold); }
         .container { max-width: 1300px; margin: auto; padding: 15px; }
+        .search-container { display: flex; gap: 10px; margin-bottom: 20px; align-items: center; flex-wrap: wrap; }
+        .search-bar { flex: 1; padding: 12px; border-radius: 8px; border: 1px solid #dee2e6; font-size: 14px; outline: none; background: #fff; }
+        .sms-balance { background: #fff; padding: 12px; border-radius: 8px; border: 1px solid #dee2e6; font-weight: bold; }
         .section-card { background: #fff; border-radius: 15px; padding: 20px; margin-bottom: 20px; border: 1px solid #e9ecef; }
         .section-title { font-size: 13px; font-weight: 800; color: #6c757d; text-transform: uppercase; margin-bottom: 15px; border-left: 4px solid var(--navy); padding-left: 10px; }
         .matrix-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
         .matrix-item { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 12px; font-size: 11px; font-weight: bold; }
         .registry-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-        .registry-table th { text-align: left; padding: 12px; border-bottom: 2px solid #dee2e6; }
+        .registry-table th { text-align: left; padding: 12px; border-bottom: 2px solid #dee2e6; color: #888; text-transform: uppercase; }
         .registry-table td { padding: 15px 12px; border-bottom: 1px solid #f1f3f5; }
-        .btn-cmd { padding: 8px 12px; border-radius: 6px; color: white; text-decoration: none; font-size: 10px; font-weight: bold; margin: 2px; display: inline-block; border: none; cursor: pointer; text-align: center;}
+        .btn-cmd { padding: 8px 12px; border-radius: 6px; color: white; text-decoration: none; font-size: 10px; font-weight: bold; margin: 2px; display: inline-block; border: none; cursor: pointer; }
         .bg-blue { background: #007bff; } .bg-wa { background: #28a745; } .bg-red { background: #dc3545; } .bg-sus { background: #6c757d; } .bg-gold { background: var(--gold); color: #000; } .bg-navy { background: var(--navy); }
         .fab { position: fixed; bottom: 30px; right: 30px; width: 60px; height: 60px; background: var(--navy); color: var(--gold); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); text-decoration: none; border: 2px solid var(--gold); }
     </style>
@@ -141,7 +116,7 @@ BASE_HTML = """
 <body>
     <div class="header">
         <div style="font-size: 22px; font-weight: 900; letter-spacing: 2px;">PBE COMMAND CENTER</div>
-        <div style="font-size: 12px; margin-top: 5px; color: var(--gold);">OPERATOR: {{ session.get('op_name', 'SYSTEM') }}</div>
+        <div style="font-size: 11px; color: var(--gold); margin-top: 5px;">OPERATOR: {{ session.get('op_name', 'SYSTEM') }}</div>
     </div>
     <div class="container">{% block content %}{% endblock %}</div>
 </body>
@@ -154,8 +129,9 @@ def admin_dashboard():
     conn = get_db(); cur = conn.cursor()
     cur.execute("SELECT * FROM pbe_registry_2026 WHERE surname IS NOT NULL ORDER BY id DESC")
     workers = cur.fetchall()
+    
     reg_stats = {r: 0 for r in GHANA_REGIONS}
-    for r in GHANA_REGIONS:
+    for r in reg_stats.keys():
         cur.execute("SELECT COUNT(*) FROM pbe_registry_2026 WHERE region = %s AND surname IS NOT NULL", (r,))
         reg_stats[r] = cur.fetchone()[0]
     
@@ -166,6 +142,12 @@ def admin_dashboard():
     cur.close(); conn.close()
 
     return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", """
+        <div class="search-container">
+            <input type="text" class="search-bar" placeholder="Search Master Registry...">
+            <a href="https://cloudinary.com/console" target="_blank" class="btn-cmd bg-navy" style="padding:15px;">☁️ CLOUDINARY</a>
+            <div class="sms-balance">SMS: <span style="color:green;">OFFLINE</span></div>
+        </div>
+
         <div class="section-card">
             <div class="section-title">🌍 16-REGION GLOBAL METRIC</div>
             <div class="matrix-grid">
@@ -174,6 +156,7 @@ def admin_dashboard():
                 {% endfor %}
             </div>
         </div>
+
         <div class="section-card">
             <div class="section-title">🛠️ TECHNICAL GUILDS WORKFORCE METRIC</div>
             <div class="matrix-grid">
@@ -182,62 +165,35 @@ def admin_dashboard():
                 {% endfor %}
             </div>
         </div>
+
         <div class="section-card">
             <div class="section-title">👥 PERSONNEL REGISTRY CONTROL</div>
-            <table class="registry-table">
-                <thead><tr><th>PBE-ID</th><th>NAME</th><th>RANK & DEPT</th><th>STATUS</th><th>COMMAND SUITE</th></tr></thead>
-                <tbody>
-                    {% for w in workers %}
-                    <tr>
-                        <td>ID: <b>{{ w[6] }}</b></td>
-                        <td>{{ w[1] }}, {{ w[2] }}</td>
-                        <td><b style="color:red;">{{ w[8] }}</b><br><small>{{ w[9] }}</small></td>
-                        <td><b style="color:green;">{{ w[15] }}</b></td>
-                        <td>
-                            <a href="{{ url_for('visual_editor', uid=w[6]) }}" class="btn-cmd bg-blue">PRINT</a>
-                            <a href="{{ url_for('review_cmd', uid=w[6]) }}" class="btn-cmd bg-navy">REVIEW DOSSIER</a>
-                            <a href="#" class="btn-cmd bg-wa">WA</a>
-                            <a href="{{ url_for('promote_cmd', uid=w[6]) }}" class="btn-cmd bg-gold">PROMOTE</a>
-                            <a href="{{ url_for('delete_cmd', uid=w[6]) }}" class="btn-cmd bg-red">DELETE</a>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+            <div style="overflow-x:auto;">
+                <table class="registry-table">
+                    <thead><tr><th>PBE-ID</th><th>NAME</th><th>RANK & DEPT</th><th>STATUS</th><th>COMMAND SUITE</th></tr></thead>
+                    <tbody>
+                        {% for w in workers %}
+                        <tr>
+                            <td>ID: <b>{{ w[6] }}</b></td>
+                            <td>{{ w[1] }}, {{ w[2] }}</td>
+                            <td><b style="color:red;">{{ w[8] }}</b><br><small>{{ w[9] }}</small></td>
+                            <td><b style="color:green;">{{ w[15] }}</b></td>
+                            <td>
+                                <a href="{{ url_for('visual_editor', uid=w[6]) }}" class="btn-cmd bg-blue">PRINT</a>
+                                <a href="#" class="btn-cmd bg-navy">REVIEW DOSSIER</a>
+                                <a href="https://wa.me/{{ w[10] }}" class="btn-cmd bg-wa" target="_blank">WA</a>
+                                <a href="#" class="btn-cmd bg-gold">PROMOTE</a>
+                                <a href="#" class="btn-cmd bg-sus">SUSPEND</a>
+                                <a href="#" class="btn-cmd bg-red">DELETE</a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         </div>
         <a href="/admin/invite" class="fab">＋</a>
     """), reg_stats=reg_stats, guild_stats=guild_stats, workers=workers)
-
-# --- 6. COMMAND ENDPOINTS (THE FIX) ---
-@app.route("/admin/review/<uid>")
-def review_cmd(uid):
-    if not session.get('role'): abort(403)
-    conn = get_db(); cur = conn.cursor(); cur.execute("SELECT * FROM pbe_registry_2026 WHERE pbe_uid = %s", (uid,))
-    w = cur.fetchone(); cur.close(); conn.close()
-    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", '<div class="section-card" style="text-align:center;"><h3>DOSSIER: {{ w[1] }}</h3><img src="{{ w[13] }}" style="width:200px;"><br><br><a href="{{ url_for(\'approve_cmd\', uid=w[6]) }}" class="btn-cmd bg-wa">APPROVE</a><a href="/admin-dashboard" class="btn-cmd bg-sus">BACK</a></div>'), w=w)
-
-@app.route("/admin/approve/<uid>")
-def approve_cmd(uid):
-    conn = get_db(); cur = conn.cursor(); cur.execute("UPDATE pbe_registry_2026 SET status = 'ACTIVE' WHERE pbe_uid = %s", (uid,))
-    conn.commit(); cur.close(); conn.close(); return redirect(url_for('admin_dashboard'))
-
-@app.route("/admin/promote/<uid>", methods=['GET', 'POST'])
-def promote_cmd(uid):
-    if session.get('role') != 'ADMIN': abort(403)
-    conn = get_db(); cur = conn.cursor()
-    if request.method == 'POST':
-        new_rank = request.form.get('new_rank')
-        cur.execute("UPDATE pbe_registry_2026 SET rank = %s WHERE pbe_uid = %s", (new_rank, uid))
-        conn.commit(); cur.close(); conn.close(); return redirect(url_for('admin_dashboard'))
-    cur.execute("SELECT * FROM pbe_registry_2026 WHERE pbe_uid = %s", (uid,))
-    w = cur.fetchone(); cur.close(); conn.close()
-    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", '<div class="section-card"><h3>PROMOTE {{ w[1] }}</h3><form method="POST"><select name="new_rank">{% for r in ranks %}<option value="{{r}}">{{r}}</option>{% endfor %}</select><button class="btn-cmd bg-gold">CONFIRM</button></form></div>'), w=w, ranks=PBE_RANKS)
-
-@app.route("/admin/delete/<uid>")
-def delete_cmd(uid):
-    if session.get('role') != 'ADMIN': abort(403)
-    conn = get_db(); cur = conn.cursor(); cur.execute("DELETE FROM pbe_registry_2026 WHERE pbe_uid = %s", (uid,))
-    conn.commit(); cur.close(); conn.close(); return redirect(url_for('admin_dashboard'))
 
 @app.route("/pbe-vanguard-hq-2026", methods=['GET', 'POST'])
 def admin_login():
@@ -245,20 +201,7 @@ def admin_login():
         if request.form.get('password') == ADMIN_PASSWORD:
             session['role'], session['op_name'] = 'ADMIN', request.form.get('op_name', 'ADMIN').upper()
             return redirect(url_for('admin_dashboard'))
-    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", '<div style="text-align:center; padding:100px;"><h3>HQ SYSTEM LOCK</h3><form method="POST"><input name="op_name" placeholder="Operator Name" required><br><input type="password" name="password" placeholder="Key" required><br><button class="btn-cmd bg-navy">UNLOCK</button></form></div>'))
-
-@app.route("/admin/invite", methods=['GET', 'POST'])
-def invite():
-    if not session.get('role'): return redirect(url_for('admin_login'))
-    if request.method == 'POST':
-        otp = str(random.randint(111111, 999999))
-        phone = request.form.get('phone')
-        conn = get_db(); cur = conn.cursor(); cur.execute("INSERT INTO pbe_registry_2026 (phone_no, otp_code) VALUES (%s, %s)", (phone, otp))
-        conn.commit(); cur.close(); conn.close(); return redirect(url_for('admin_dashboard'))
-    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", '<div class="section-card"><h3>INVITE</h3><form method="POST"><input name="phone" placeholder="+233..."><button class="btn-cmd bg-blue">SEND</button></form></div>'))
-
-@app.route("/")
-def index(): return redirect(url_for('admin_login'))
+    return render_template_string(BASE_HTML.replace("{% block content %}{% endblock %}", '<div style="text-align:center; padding:100px;"><h3>HQ SYSTEM LOCK</h3><form method="POST"><input name="op_name" placeholder="Operator Name" required><br><input type="password" name="password" placeholder="Key" required><br><button class="btn-cmd bg-navy" style="width:200px; padding:15px;">UNLOCK</button></form></div>'))
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
